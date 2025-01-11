@@ -73,7 +73,7 @@ for di, text in enumerate(datasets):
     print(f"Num. of Cluster: {len(concat_indices)}, Max group size: {max_group_size}, Avg. group size: {avg_group_size:.2f}")
 
     # ========================== [Ready to summarize] ==================
-    batch_clusters = [
+    batch_clusters = [ #주제별로 문장들이 합쳐져서 있음
         " ".join([segments[gi] for gi in group]) for group in concat_indices
     ]
 

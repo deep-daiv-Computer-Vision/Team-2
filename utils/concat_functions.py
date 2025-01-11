@@ -14,7 +14,7 @@ from scipy.cluster.hierarchy import linkage, fcluster
     function signature:
         args: text segments (list), any other arguments if needed
         returns: concatenated indexes (list)--> should be the final theme indexes
-
+        
 """
 
 # concatenate based on time line
