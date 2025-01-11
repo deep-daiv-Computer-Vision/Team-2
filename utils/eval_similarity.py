@@ -4,7 +4,8 @@ import seaborn as sns
 # pip install rouge_score bert_score
 from rouge_score import rouge_scorer
 from bert_score import score as bert_score
-
+from .segment_embedding import *
+from .utils import cosine_similarity
 
 def calculate_rouge_scores(original_text, summary):
     """
