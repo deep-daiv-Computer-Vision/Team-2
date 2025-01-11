@@ -89,3 +89,21 @@ def visualize_clusters(labels, embeddings_2d, original_sentences, summary_senten
     plt.ylabel('t-SNE Dimension 2')
     plt.legend()
     plt.show()
+    
+######### 사용 예시 #########
+# from utils.clustering_analysis import analyze_text_clusters, visualize_clusters
+
+## 텍스트 준비
+# original_text = "..."
+# summary_text = "..."
+
+## 분석 실행
+# labels, embeddings_2d, original_sentences, summary_sentences = analyze_text_clusters(
+#     original_text, 
+#     summary_text,
+#     eps=0.3,
+#     min_samples=2
+# )
+
+## 시각화
+# visualize_clusters(labels, embeddings_2d, original_sentences, summary_sentences)
