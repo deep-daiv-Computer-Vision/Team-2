@@ -95,6 +95,25 @@ def calculate_bert_matrix(texts, model="bert-base-uncased"):
         
     return bert_matrix
 
+
+
+def calculate_semantic_similarity(original_text, summary, sent2vec=True):
+    """
+    Sent2vec의 유사도를 이용한 sementic_similarity 계산.
+    
+    Args:
+    - original_text (str): 원본 텍스트.
+    - summary (str): 요약 텍스트.
+    - model (str): 사용할 BERT 모델의 이름 (default: "bert-base-uncased").
+    
+    Returns:
+    - float: sementic_similarity.
+    """
+    embeddings = encode_sent2vec([summary, original_text])
+    sementic_similarity = cosine_similarity(embeddings[0], embeddings[1])
+
+    return sementic_similarity
+
 def plot_heatmap(matrix, title):
     """
     주어진 매트릭스를 히트맵 형태로 시각화.
