@@ -1,0 +1,31 @@
+experiment_name: "knn_150_20_65"
+
+mini_batch:
+  size: 4
+  # N means the number of cluster text in one inference
+  # strongly recommend to set N to half ~ two-thirds of your VRAM(GB)
+
+data:
+  source: "youtube" # "opensource"
+  opensource: "ccdv/govreport-summarization"
+  youtube: "WhiteboardLLM/Data"
+  index_set: 3
+
+segment:
+  args:
+    n_word: 150
+    n_overlap: 0
+    fix_size: False
+
+concat:
+  method: "concate_knn"
+  args:
+    k: 20
+    threshold: 0.65
+
+summary:
+  args:
+    min_length: 100
+    max_length: 1024
+
+save_summaries: True
