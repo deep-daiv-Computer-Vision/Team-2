@@ -1,5 +1,6 @@
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 import torch
+from xai_gradient import *
 
 """
 This file is for summarizer functions
@@ -30,14 +31,15 @@ def summarizer(texts: list, model="facebook/bart-large-cnn", max_length=1024, mi
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     tokenizer = AutoTokenizer.from_pretrained(model)
-    model = AutoModelForSeq2SeqLM.from_pretrained(model).to(device)
+    model = AutoModelForSeq2SeqLM.from_pretrained(model, output_attention=True).to(device)
 
     inputs = tokenizer(texts, 
                        max_length=max_length,
                        truncation=True,
                        padding='longest', 
                        return_tensors='pt'
-    )
+    ).to(device)
+
     with torch.no_grad():
         inputs = {key: value.to(model.device) for key, value in inputs.items()}
         summary_ids = model.generate(inputs['input_ids'], num_beams=num_beams, min_length=min_length, max_length=max_length)
@@ -47,7 +49,10 @@ def summarizer(texts: list, model="facebook/bart-large-cnn", max_length=1024, mi
     # concatenate summaries TODO: if needed add /n between summaries
     summary = " ".join(summaries)
 
+    #Calculate token impoartance
+    token_importance = calculate_token_importance_gradient(inputs, model, tokenizer)
+
     # free unusable memory
     del inputs, summary_ids, summaries
 
-    return summary
+    return summary, token_importance
