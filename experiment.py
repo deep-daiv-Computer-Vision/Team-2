@@ -49,6 +49,7 @@ if not os.path.exists(save_dir_path):
 def run_experiment(datasets, config):
     max_score = 0
     best_summary = ""
+    best_index = 0
 
     evaluation_results = []
     for di, text in enumerate(datasets):
@@ -110,6 +111,20 @@ def run_experiment(datasets, config):
         # scale score * 100
         rouge1, rouge2, rougeL = rouge1*100, rouge2*100, rougeL*100
         b_score = b_score * 100
+        
+        # ========================== [Post-process] ========================
+        if b_score > max_score: # score는 대소비교 가능한 1가지 방식을 이용
+            max_score = b_score
+            best_summary = batch_summaries
+            best_index = di
+            # 원본 텍스트의 index는 indices[di]로 찾을 수 있음
+
+        evaluation_results.append({
+            'rouge1': rouge1,
+            'rouge2': rouge2,
+            'rougeL': rougeL,
+            'bert_score': b_score
+        })
 
         # 요약 결과와 성능 값을 저장합니다.
         evaluation_results.append({
@@ -125,19 +140,7 @@ def run_experiment(datasets, config):
     # 모든 결과를 반환합니다.
     return evaluation_results
 
-# ========================== [Post-process] ========================
-if b_score > max_score: # score는 대소비교 가능한 1가지 방식을 이용
-    max_score = b_score
-    best_summary = batch_summaries
-    best_index = di
-    # 원본 텍스트의 index는 indices[di]로 찾을 수 있음
 
-evaluation_results.append({
-    'rouge1': rouge1,
-    'rouge2': rouge2,
-    'rougeL': rougeL,
-    'bert_score': b_score
-})
 print(f"Total: {time.time()-init_s:.2f} sec")
 
 # append summary and scores to text file (cummulative)
