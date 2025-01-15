@@ -97,7 +97,7 @@ def calculate_bert_matrix(texts, model="bert-base-uncased"):
     return bert_matrix
 
 
-
+# dlrjek
 def calculate_semantic_similarity(original_text, summary, sent2vec=True):
     """
     Sent2vec의 유사도를 이용한 sementic_similarity 계산.

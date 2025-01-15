@@ -1,24 +1,160 @@
-from flask import Flask, request, jsonify
-from transformers import pipeline
-from experiment import run_experiment
+# ======================= [built-in modules] =======================
+import os
+import time
 
-app = Flask(__name__)
+# ====================== [third-party modules] =====================
+import yaml
+from box import Box
+import numpy as np
+from datasets import load_dataset
+from bert_score import score as bert_score
+from rouge_score import rouge_scorer
+import matplotlib.pyplot as plt
 
-@app.route('/summarize', methods=['POST'])
-def summarize():
-    # 프론트엔드로부터 '요약할 텍스트'와 '선택할 모델'을 받습니다.
-    data = request.json
-    text_to_summarize = data.get('text')
-    selected_model = data.get('model')
+# ======================= [custom modules] =========================
+from utils.eval_similarity import *
+from utils.utils import *
+from utils.segment_embedding import *
+from utils.concat_functions import *
+from utils.summarizer import *
+from utils.clustering_analysis import *
 
-     # 실험 실행
-    try:
-        experiment_results = run_experiment(text_to_summarize, selected_model)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
 
-    # 실험 결과를 반환합니다.
-    return jsonify({'experiments': experiment_results})
+# ========================= [Load config] ===========================
+with open("config.yaml", "r") as f:
+    config = yaml.load(f, Loader=yaml.FullLoader)
+    config = Box(config)
 
-if __name__ == '__main__':
-    app.run(debug=True)
+print('Experiment name:', config.experiment_name)
+print('===============================================')
+
+# ========================== [Run experiments] ==========================
+def summarize_and_visualization(text, config):
+    max_score = 0
+    best_summary = ""
+    best_index = 0
+
+    evaluation_results = []
+    print(" ----------------- [1/1] ----------------- ")
+    init_s = time.time()
+
+    # ========================== [Segmentation] ========================
+    print("Segmentating... ", end="", flush=True)
+    s = time.time()
+    segments = segmentate_sentence(text, **config.segment.args)
+    e = time.time()
+    print("Done", f"{e-s:.2f} sec")
+
+    # ========================== [Clustering] ==========================
+    print("Clustering...   ", end="", flush=True)
+    s = time.time()
+    concat_indices = globals()[config.concat.method](segments, **config.concat.args)
+    e = time.time()
+    print("Done", f"{e-s:.2f} sec")
+
+    max_group_size = max([len(group) for group in concat_indices])
+    avg_group_size = np.mean([len(group) for group in concat_indices])
+    print(f"Num. of Cluster: {len(concat_indices)}, Max group size: {max_group_size}, Avg. group size: {avg_group_size:.2f}")
+
+    # ========================== [Ready to summarize] ==================
+    batch_clusters = [ #주제별로 문장들이 합쳐져서 있음
+        " ".join([segments[gi] for gi in group]) for group in concat_indices
+    ]
+
+    # ========================== [Summarize] ===========================
+    print("Summarizing...  ", end="", flush=True)
+    s = time.time()
+    if config.mini_batch.size > 0:
+        mini_batch_size = (len(batch_clusters)
+                           if len(batch_clusters) < config.mini_batch.size else
+                           config.mini_batch.size)
+
+        batch_summaries = []
+        batch_token_importances = []
+        for i in range(0, len(batch_clusters), mini_batch_size):
+            mini_batch_summaries, mini_batch_token_importance = summarizer(batch_clusters[i:i+mini_batch_size], **config.summary.args)
+            batch_summaries.append(mini_batch_summaries)
+            batch_token_importances.append(mini_batch_token_importance)
+        batch_summaries = " ".join(batch_summaries)
+        # token_importance를 합치거나 평균을 내는 로직이 필요할 수 있습니다.
+        token_importance = np.mean(batch_token_importances, axis=0)
+    else:
+        batch_summaries, token_importance = summarizer(batch_clusters, **config.summary.args)
+    e = time.time()
+    print("Done", f"{e-s:.2f} sec")
+
+    # ========================== [Evaluate] ============================
+    print("Evaluating...   ", end="", flush=True)
+    s = time.time()
+    
+    rouge1, rouge2, rougeL = calculate_rouge_scores(text, batch_summaries)
+    b_score = calculate_bert_score(text, batch_summaries)
+
+    # scale score * 100
+    rouge1, rouge2, rougeL = rouge1*100, rouge2*100, rougeL*100
+    b_score = b_score * 100
+    
+    # ========================== [Post-process] ========================
+    if b_score > max_score: # score는 대소비교 가능한 1가지 방식을 이용
+        max_score = b_score
+        best_summary = batch_summaries
+        best_index = 0
+
+    evaluation_results.append({
+        'summary': batch_summaries,
+        'rouge1': rouge1,
+        'rouge2': rouge2,
+        'rougeL': rougeL,
+        'bert_score': b_score,
+        'token_importance': token_importance.tolist(),
+        # 'visualization': visualization_path  # 그래프 시각화 경로 추가 필요
+    })
+
+    # 모든 결과를 반환합니다.
+    return evaluation_results
+
+def brushing_and_resummarize(datasets, config, selected_text):
+    """
+    사용자가 선택한 텍스트와 전체 텍스트의 유사도를 기반으로 요약을 생성.
+
+    Args:
+    - datasets (list of str): 전체 텍스트 리스트.
+    - config (Box): 설정 객체.  -> 솔직히 이거 왜 필요한가 싶음
+    - selected_text (str): 사용자가 선택한 텍스트.
+
+    Returns:
+    - list of dict: 각 텍스트에 대한 요약 및 평가 결과.
+    """
+    results = []
+    # 전체 텍스트를 문장 단위로 분할
+    sentences = datasets.split('. ')
+    
+    # 각 문장과 선택된 텍스트의 유사도 계산
+    similarities = [calculate_semantic_similarity(sentence, selected_text) for sentence in sentences]
+    
+    # 유사도가 높은 순으로 정렬하여 상위 n개의 문장 선택
+    n = 3  # 요약에 포함할 문장 수
+    top_sentences = [sentences[i] for i in np.argsort(similarities)[-n:]]
+    
+    # 선택된 문장들을 결합하여 요약 생성
+    summary = '. '.join(top_sentences)
+    
+    # 요약 평가
+    rouge1, rouge2, rougeL = calculate_rouge_scores(text, summary)
+    b_score = calculate_bert_score(text, summary)
+
+    # scale score * 100
+    rouge1, rouge2, rougeL = rouge1*100, rouge2*100, rougeL*100
+    b_score = b_score * 100
+
+    result = {
+        'summary': summary,
+        'rouge1': rouge1,
+        'rouge2': rouge2,
+        'rougeL': rougeL,
+        'bert_score': b_score,
+        'token_importance': token_importance.tolist(),
+        # 'visualization': visualization_path  # 그래프 시각화 경로 추가 필요
+    }
+
+    return result
