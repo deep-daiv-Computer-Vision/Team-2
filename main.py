@@ -139,22 +139,9 @@ def brushing_and_resummarize(datasets, config, selected_text):
     # 선택된 문장들을 결합하여 요약 생성
     summary = '. '.join(top_sentences)
     
-    # 요약 평가
-    rouge1, rouge2, rougeL = calculate_rouge_scores(text, summary)
-    b_score = calculate_bert_score(text, summary)
-
-    # scale score * 100
-    rouge1, rouge2, rougeL = rouge1*100, rouge2*100, rougeL*100
-    b_score = b_score * 100
 
     result = {
         'summary': summary,
-        'rouge1': rouge1,
-        'rouge2': rouge2,
-        'rougeL': rougeL,
-        'bert_score': b_score,
-        'token_importance': token_importance.tolist(),
-        # 'visualization': visualization_path  # 그래프 시각화 경로 추가 필요
     }
 
     return result
