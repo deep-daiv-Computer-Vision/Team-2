@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 from transformers import pipeline
 from experiment import summarize_and_visualization
+from main import summarize_and_visualization
 
 app = Flask(__name__)
 
