@@ -35,7 +35,7 @@ def summarize_and_visualization(text, config):
     best_index = 0
 
     evaluation_results = []
-    print(" ----------------- [1/1] ----------------- ")
+
     init_s = time.time()
 
     # ========================== [Segmentation] ========================

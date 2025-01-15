@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify
 from transformers import pipeline
 from experiment import summarize_and_visualization
-from main import summarize_and_visualization
+from main import summarize_and_visualization, brushing_and_resummarize
 
 app = Flask(__name__)
 
@@ -30,7 +30,7 @@ def resummarize():
 
     # 실험 실행
     try:
-        experiment_results = summarize_and_visualization(modified_text, selected_model)
+        experiment_results = brushing_and_resummarize(modified_text, selected_model)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
