@@ -19,7 +19,6 @@ from utils.concat_functions import *
 from utils.summarizer import *
 from utils.clustering_analysis import *
 
-
 # ========================= [Load config] ===========================
 with open("config.yaml", "r") as f:
     config = yaml.load(f, Loader=yaml.FullLoader)
@@ -55,6 +54,8 @@ def summarize_and_visualization(text, config):
     max_group_size = max([len(group) for group in concat_indices])
     avg_group_size = np.mean([len(group) for group in concat_indices])
     print(f"Num. of Cluster: {len(concat_indices)}, Max group size: {max_group_size}, Avg. group size: {avg_group_size:.2f}")
+
+    # 여기서 클러스터링한 걸 가지고 아래 불러온 함수에서 시각화를 합시다~~~
 
     # ========================== [Ready to summarize] ==================
     batch_clusters = [ #주제별로 문장들이 합쳐져서 있음

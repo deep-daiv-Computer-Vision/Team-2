@@ -1,18 +1,21 @@
 from flask import Flask, request, jsonify
-from transformers import pipeline
-from experiment import summarize_and_visualization
-from main import summarize_and_visualization, brushing_and_resummarize
+from mainrun import summarize_and_visualization, brushing_and_resummarize
 
 app = Flask(__name__)
 
 @app.route('/summarize', methods=['POST'])
 def summarize():
-    # 프론트엔드로부터 '요약할 텍스트'와 '선택할 모델'을 받습니다.
-    data = request.json
-    text_to_summarize = data.get('text')
-    selected_model = data.get('model')
+    # 프론트엔드로부터 '.txt' 파일과 '선택할 모델'을 받습니다.
+    file = request.files.get('file')
+    selected_model = request.form.get('model')
 
-     # 실험 실행
+    if not file or not file.filename.endswith('.txt'):
+        return jsonify({'error': '유효한 .txt 파일을 업로드하세요.'}), 400
+
+    # 파일 내용을 읽습니다.
+    text_to_summarize = file.read().decode('utf-8')
+
+    # 실험 실행
     try:
         experiment_results = summarize_and_visualization(text_to_summarize, selected_model)
     except Exception as e:
