@@ -10,3 +10,4 @@ bert-score
 pyyaml
 python-box
 scikit-learn
+flask-cors

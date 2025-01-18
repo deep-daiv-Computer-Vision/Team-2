@@ -1,7 +1,9 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 from mainrun import summarize_and_visualization, brushing_and_resummarize
 
 app = Flask(__name__)
+CORS(app)
 
 @app.route('/summarize', methods=['POST'])
 def summarize():
