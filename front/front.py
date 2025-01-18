@@ -31,7 +31,7 @@ def create_attention_html(text, attention_scores):
 @st.cache_resource
 def load_model(model_name):
     """모델과 토크나이저를 로드하고 캐시"""
-    local_model_path = f"./models_installed/{model_name}"  # 로컬 모델 저장 경로
+    local_model_path = f"../models_installed/{model_name}"  # 로컬 모델 저장 경로
     # TODO: 서버에서 미리 모델 저장하고 부를건지 체크해야 함
     
     try:
@@ -105,6 +105,29 @@ def calculate_bert_score(summary, reference):
     return F1.mean().item()
 
 def main():
+    # 팝업 상태 관리를 위한 session state 초기화
+    if 'popup_states' not in st.session_state:
+        st.session_state.popup_states = {}
+
+    # CSS 스타일 추가
+    st.markdown("""
+        <style>
+        .text-section {
+            position: relative;
+            margin: 10px 0;
+        }
+        .summary-box {
+            background-color: white;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            margin-top: 10px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
     st.title("🔮시험 공부 벼락치기 시트 만들기")
     st.write("본 요약시스템은 영어 요약만 제공합니다.")
     # 사이드바 설정
@@ -212,11 +235,43 @@ def main():
             if view_mode == "특정 주제":
                 st.info("""
                 💡 **특정 주제 모드 사용 방법**
-                1. 아래의 요약 문장들 중 관심 있는 문장을 클릭하세요.
+                - 여기에 scatter plot 들어갈 예정.
+                1. 아래의 요약 문장들을 클릭하세요.
                 2. 클릭한 요약 문장과 관련된 원본 문장들이 오른쪽에 하이라이트되어 표시됩니다.
-                3. 다른 요약 문장을 클릭하여 다른 주제의 원본 내용도 확인할 수 있습니다.
+                3. 클릭한 문장에 대한 상세 정보가 아래에 표시됩니다.
+                4. 같은 문장을 다시 클릭하면 상세 정보가 닫힙니다.
                 """)
-            
+                
+                # 요약 문장을 버튼으로 표시
+                summary_sentences = st.session_state.summary.split('. ')
+                
+                for i, sent in enumerate(summary_sentences):
+                    if sent:  # 빈 문장 제외
+                        if st.button(f"{sent}.", key=f"topic_summary_sent_{i}"):
+                            # 현재 버튼이 이미 활성화되어 있다면 닫기
+                            if st.session_state.popup_states.get(i, False):
+                                st.session_state.popup_states[i] = False
+                            else:
+                                # 다른 모든 팝업은 닫고 현재 선택한 것만 열기
+                                st.session_state.popup_states = {k: False for k in st.session_state.popup_states.keys()}
+                                st.session_state.popup_states[i] = True
+                            st.session_state.selected_sentence = sent
+                        
+                        # 팝업 표시
+                        # TODO: Brushing 재요약 부분 여기 markdown으로 해결하기
+                        if st.session_state.popup_states.get(i, False):
+                            st.markdown(
+                                f"""
+                                <div class="summary-box">
+                                    <h4>상세 정보</h4>
+                                    <p>• 핵심 키워드: [관련 키워드들]</p>
+                                    <p>• 관련 문맥: {sent}와 관련된 추가적인 설명</p>
+                                    <p>• 연관 개념: [관련된 주요 개념들]</p>
+                                </div>
+                                """,
+                                unsafe_allow_html=True
+                            )
+
             if view_mode == "전체 문장":
                 st.info("""
                 💡 **전체 문장 모드 설명서**
@@ -232,22 +287,7 @@ def main():
                     unsafe_allow_html=True
                 )
             else:
-                # 버튼 형식으로 요약 문장 표시
-                summary_sentences = st.session_state.summary.split('. ')
-                
-                # session_state에 선택된 문장 저장
-                if 'selected_sentence' not in st.session_state:
-                    st.session_state.selected_sentence = None
-                
-                for i, sent in enumerate(summary_sentences):
-                    if sent:  # 빈 문장 제외
-                        if st.button(f"{sent}.", key=f"summary_sent_{i}"):
-                            st.session_state.selected_sentence = sent
-                            
-            # TODO: 클러스터링 시각화하는 함수 불러와서 체크
-            st.write("")
-            st.write("")
-            st.markdown("### 문장 간의 관계 확인(scatter plot)")
+                pass
 
         with col2:
             st.header("원본 텍스트")
@@ -289,10 +329,6 @@ def main():
                 else:
                     st.info("요약 문장을 클릭하면 관련된 원본 문장이 하이라이트됩니다.")
             
-            # TODO: Brushing 하는 부분 추가
-            st.write("")
-            st.write("")
-            st.markdown("### 재요약(Brushing) 확인")
     else:
         st.sidebar.error("텍스트를 입력하거나 파일을 업로드해주세요.")
 
