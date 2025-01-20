@@ -4,6 +4,7 @@ from .segment_embedding import *
 from sklearn.neighbors import NearestNeighbors
 from sklearn.cluster import DBSCAN
 from scipy.cluster.hierarchy import linkage, fcluster
+from sklearn.metrics.pairwise import cosine_distances
 
 """
     this file is for concatenate functions
@@ -128,6 +129,97 @@ def concate_knn(segments: list, k: int = 20, threshold: float = 0.6) -> list:
 
     return concatenated_indexes
 
+def concate_kmeans(segments: list, k: int = 20) -> list:
+    """
+    Concatenate based on k-means clustering with cosine distance.
+
+    Args:
+    - segments: segment list
+    - k: Number of clusters.
+
+    Returns:
+    - list: Clustered indexes as groups.
+    """
+    # Encode the segments into embeddings
+    embeddings = encode_segments(segments)
+
+    if not isinstance(embeddings, np.ndarray):
+        raise ValueError("Input embeddings must be a numpy array.")
+    if len(embeddings) == 0:
+        return []
+
+    # Normalize the embeddings for cosine similarity
+    embeddings = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
+
+    # Initialize k-means model with precomputed cosine distances
+    k = min(k, len(embeddings))  # Ensure k does not exceed the number of embeddings
+
+    # Custom implementation of k-means with cosine distances
+    centroids = embeddings[np.random.choice(len(embeddings), k, replace=False)]
+
+    for _ in range(100):  # Max iterations
+        # Compute cosine distances
+        distances = cosine_distances(embeddings, centroids)
+        
+        # Assign clusters
+        cluster_labels = np.argmin(distances, axis=1)
+
+        # Update centroids
+        new_centroids = np.array([
+            embeddings[cluster_labels == i].mean(axis=0)
+            if len(embeddings[cluster_labels == i]) > 0 else centroids[i]
+            for i in range(k)
+        ])
+
+        # Check for convergence
+        if np.allclose(centroids, new_centroids):
+            break
+
+        centroids = new_centroids
+
+    # Group indexes by their cluster labels
+    clustered_indexes = [[] for _ in range(k)]
+    for idx, label in enumerate(cluster_labels):
+        clustered_indexes[label].append(idx)
+
+    return [sorted(group) for group in clustered_indexes if group]
+
+
+def concate_hierarchical(segments: list, k: int = 20) -> list:
+    """
+    Concatenate based on hierarchical clustering with cosine similarity.
+
+    Args:
+    - segments: segment list
+    - k: Number of clusters.
+
+    Returns:
+    - list: Clustered indexes as groups.
+    """
+    # Encode the segments into embeddings
+    embeddings = encode_segments(segments)
+
+    if not isinstance(embeddings, np.ndarray):
+        raise ValueError("Input embeddings must be a numpy array.")
+    if len(embeddings) == 0:
+        return []
+
+    # Normalize the embeddings for cosine similarity
+    embeddings = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
+
+    # Compute cosine distance matrix
+    cosine_dist = cosine_distances(embeddings)
+
+    # Perform Agglomerative Clustering
+    clustering = AgglomerativeClustering(n_clusters=k, metric='precomputed', linkage='average')
+    cluster_labels = clustering.fit_predict(cosine_dist)
+
+    # Group indexes by their cluster labels
+    clustered_indexes = [[] for _ in range(k)]
+    for idx, label in enumerate(cluster_labels):
+        clustered_indexes[label].append(idx)
+
+    return [sorted(group) for group in clustered_indexes if group]
 
 # timline based + clustering
 def concate_time_clustering(segments: list, threshold=0.6, eps: float = 0.15, min_samples: int = 3) -> list:
