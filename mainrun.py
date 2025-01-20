@@ -96,7 +96,7 @@ def exe_by_sentences(text: str):
         'bert_score': s_score
     }
 
-    return batch_summaries, batch_importances, evaluation_results, visualize_pth
+    return segments, concat_indices, batch_summaries, batch_importances, evaluation_results, visualize_pth
 
 def resummarize_with_sentece(full_text: str, target_text: str):
     # ========================= [Load config] ===========================
