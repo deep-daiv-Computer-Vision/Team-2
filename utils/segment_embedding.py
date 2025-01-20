@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as F
 from transformers import AutoTokenizer, AutoModel
 
-def segmentate_sentence(full_text: str, n_word: int, n_overlap: int=0, fix_size: bool=False) -> List[str]:
+def segmentate_sentence(full_text: str, n_word: int, n_overlap: int=0, fix_size: bool=False, by_sentences: bool=False) -> List[str]:
     """
     전체 텍스트를 n_word 단어 개수로 나누어 리스트로 반환
 
@@ -20,18 +20,21 @@ def segmentate_sentence(full_text: str, n_word: int, n_overlap: int=0, fix_size:
     """
     assert n_word > n_overlap, "n_word must be greater than n_overlap"
 
-    words = full_text.split()
-    # assert n_word <= len(words), "n_word must be less than the number of words in full_text"
-
-    result = []
-    for i in range(0, len(words), n_word-n_overlap):
-        result.append(" ".join(words[i:i+n_word]))
-
-        if i + n_word >= len(words):
-            break
-
-    if fix_size:
-        result[-1] = " ".join(words[-n_word:])
+    if !by_sentences:
+        words = full_text.split()
+        # assert n_word <= len(words), "n_word must be less than the number of words in full_text"
+    
+        result = []
+        for i in range(0, len(words), n_word-n_overlap):
+            result.append(" ".join(words[i:i+n_word]))
+    
+            if i + n_word >= len(words):
+                break
+    
+        if fix_size:
+            result[-1] = " ".join(words[-n_word:])
+    else:
+        result = full_text.split('.')
 
     return result
 
