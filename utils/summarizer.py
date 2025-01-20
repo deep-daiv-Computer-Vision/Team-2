@@ -1,6 +1,6 @@
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 import torch
-from xai_gradient import *
+from .xai_gradient import *
 
 """
 This file is for summarizer functions

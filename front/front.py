@@ -1,17 +1,8 @@
 import streamlit as st
-import pandas as pd
 import numpy as np
-from transformers import (
-    AutoTokenizer, 
-    AutoModelForSeq2SeqLM,
-    pipeline
-)
-import torch
-from rouge_score import rouge_scorer
-from bert_score import score
+import requests
 
 # TODO: 백엔드와 연결하는 작업 필요
-# TODO: brushing POP-UP창 작업 필요
 
 # 페이지 설정을 가장 먼저 호출
 st.set_page_config(
@@ -21,88 +12,141 @@ st.set_page_config(
 
 def create_attention_html(text, attention_scores):
     """텍스트에 attention score를 적용하여 HTML로 변환"""
+    words = text.split()
+    # attention_scores의 길이가 words의 길이와 다른 경우 처리
+    if len(attention_scores) != len(words):
+        # 길이를 맞추기 위해 attention_scores를 리샘플링
+        attention_scores = np.interp(
+            np.linspace(0, 1, len(words)),
+            np.linspace(0, 1, len(attention_scores)),
+            attention_scores
+        )
+    
     html = ""
-    for word, score in zip(text.split(), attention_scores):
-        # score를 0-1 사이의 값으로 정규화
-        intensity = int(score * 255)
+    for word, score in zip(words, attention_scores):
+        # score는 이미 0-1 사이의 값으로 정규화되어 있음
         html += f'<span style="background-color: rgba(255, 0, 0, {score:.2f})">{word}</span> '
     return html
 
-@st.cache_resource
-def load_model(model_name):
-    """모델과 토크나이저를 로드하고 캐시"""
-    local_model_path = f"../models_installed/{model_name}"  # 로컬 모델 저장 경로
-    # TODO: 서버에서 미리 모델 저장하고 부를건지 체크해야 함
-    
-    try:
-        # 로컬에서 모델 로드 시도
-        tokenizer = AutoTokenizer.from_pretrained(local_model_path)
-        model = AutoModelForSeq2SeqLM.from_pretrained(local_model_path)
-    except:
-        # 로컬에 없으면 허깅페이스에서 다운로드 후 저장
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
-        
-        # 모델과 토크나이저 저장
-        tokenizer.save_pretrained(local_model_path)
-        model.save_pretrained(local_model_path)
-    
-    return model, tokenizer
-
-# TODO:임의적으로 함수화하긴 했는데, codebase 단에 있는 함수로 교체해야 함
 def get_summary_and_attention(text, model_name):
     """텍스트 요약 및 어텐션 스코어 계산"""
-    model, tokenizer = load_model(model_name)
-    
-    # 토크나이징
-    inputs = tokenizer(text, return_tensors="pt", max_length=1024, truncation=True)
-    
-    # 요약 생성
-    with torch.no_grad():
-        # 먼저 요약문 생성
-        summary_ids = model.generate(
-            inputs["input_ids"],
-            max_length=150,
-            num_beams=4,
-            early_stopping=True
-        )
+    try:
+        data = {'model': model_name}
         
-        # attention weights 계산을 위한 forward pass
-        outputs = model(
-            input_ids=inputs["input_ids"],
-            attention_mask=inputs["attention_mask"],
-            output_attentions=True
-        )
-    
-    # 요약문 디코딩
-    summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
-    
-    # 어텐션 스코어 계산 (인코더의 마지막 레이어 attention 사용)
-    attention_weights = outputs.encoder_attentions[-1]  # 마지막 레이어의 어텐션
-    attention_weights = torch.mean(attention_weights, dim=1)  # head 평균
-    attention_scores = attention_weights[0].mean(dim=0)  # 시퀀스 평균
-    
-    # 입력 텍스트 길이에 맞게 자르기
-    attention_scores = attention_scores[:len(text.split())].numpy()
-    
-    return summary, attention_scores
+        # 파일 업로드인 경우
+        if isinstance(text, bytes) or hasattr(text, 'read'):
+            files = {
+                'file': ('input.txt', text if isinstance(text, bytes) else text.read(), 'text/plain')
+            }
+            response = requests.post(
+                "http://localhost:5000/summarize",
+                files=files,
+                data=data
+            )
+        # 직접 텍스트 입력인 경우
+        else:
+            data['text'] = text
+            response = requests.post(
+                "http://localhost:5000/summarize",
+                data=data
+            )
 
-# TODO: 요약모델 계산 Codebase 단에 있는 함수로 교체
+        if response.status_code == 200:
+            result = response.json()
+            experiment = result['experiments'][0]
+            token_importance = np.array(experiment.get('token_importance', []))
+            
+            if len(token_importance) == 0:
+                return experiment.get('summary'), np.zeros(len(text.split()))
+                
+            # 정규화 시 예외 처리
+            token_max = token_importance.max()
+            token_min = token_importance.min()
+            if token_max == token_min:
+                normalized_importance = np.full_like(token_importance, 0.5)
+            else:
+                normalized_importance = (token_importance - token_min) / (token_max - token_min)
+                
+            return experiment.get('summary'), normalized_importance
+        else:
+            st.error(f"API 오류: {response.status_code}")
+            return None, None
+    except Exception as e:
+        st.error(f"연결 오류: {str(e)}")
+        return None, None
+
 def calculate_rouge(summary, reference):
     """ROUGE 점수 계산"""
-    scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'], use_stemmer=True)
-    scores = scorer.score(reference, summary)
-    
-    return {
-        'rouge-1': {'f': scores['rouge1'].fmeasure},
-        'rouge-2': {'f': scores['rouge2'].fmeasure},
-        'rouge-l': {'f': scores['rougeL'].fmeasure}
-    }
+    try:
+        response = requests.post(
+            "http://localhost:5000/calculate-rouge",
+            json={
+                "summary": summary,
+                "reference": reference
+            }
+        )
+        if response.status_code == 200:
+            result = response.json()
+            # route.py에서 반환하는 형식에 맞춰 값을 추출
+            return {
+                'rouge1': result['rouge-1']['f'],
+                'rouge2': result['rouge-2']['f'],
+                'rougeL': result['rouge-l']['f']
+            }
+        else:
+            st.error(f"ROUGE 계산 오류: {response.status_code}")
+            return {
+                'rouge1': 0.0,
+                'rouge2': 0.0,
+                'rougeL': 0.0
+            }
+    except Exception as e:
+        st.error(f"연결 오류: {str(e)}")
+        return {
+            'rouge1': 0.0,
+            'rouge2': 0.0,
+            'rougeL': 0.0
+        }
 
 def calculate_bert_score(summary, reference):
     """BERTScore 계산"""
-    P, R, F1 = score([summary], [reference], lang="en", verbose=False)
-    return F1.mean().item()
+    try:
+        response = requests.post(
+            "http://localhost:5000/calculate-bertscore",
+            json={
+                "summary": summary,
+                "reference": reference
+            }
+        )
+        if response.status_code == 200:
+            return response.json()["score"]  # float 값으로 반환됨
+        else:
+            st.error(f"BERTScore 계산 오류: {response.status_code}")
+            return 0.0
+    except Exception as e:
+        st.error(f"연결 오류: {str(e)}")
+        return 0.0
+
+def get_resummarize(text, model_name):
+    """선택된 문장에 대한 재요약 결과 가져오기"""
+    try:
+        response = requests.post(
+            "http://localhost:5000/resummarize",
+            json={
+                "text": text,
+                "model": model_name
+            }
+        )
+        if response.status_code == 200:
+            result = response.json()
+            # 첫 번째 실험 결과만 반환
+            return result['experiments'][0] if result['experiments'] else None
+        else:
+            st.error(f"재요약 API 오류: {response.status_code}")
+            return None
+    except Exception as e:
+        st.error(f"연결 오류: {str(e)}")
+        return None
 
 def main():
     # 팝업 상태 관리를 위한 session state 초기화
@@ -128,7 +172,7 @@ def main():
         </style>
         """, unsafe_allow_html=True)
 
-    st.title("🔮시험 공부 벼락치기 시트 만들기")
+    st.title("🔮💯시험 공부 벼락치기 시트 만들기")
     st.write("본 요약시스템은 영어 요약만 제공합니다.")
     # 사이드바 설정
     st.sidebar.title("강의 내용 요약하기")
@@ -213,10 +257,10 @@ def main():
                 st.sidebar.write("#### ROUGE 점수")
                 col1_rouge, col2_rouge = st.sidebar.columns(2)
                 with col1_rouge:
-                    st.metric("ROUGE-1", f"{rouge_scores['rouge-1']['f']:.3f}")
-                    st.metric("ROUGE-2", f"{rouge_scores['rouge-2']['f']:.3f}")
+                    st.metric("ROUGE-1", f"{rouge_scores['rouge1']:.3f}")
+                    st.metric("ROUGE-2", f"{rouge_scores['rouge2']:.3f}")
                 with col2_rouge:
-                    st.metric("ROUGE-L", f"{rouge_scores['rouge-l']['f']:.3f}")
+                    st.metric("ROUGE-L", f"{rouge_scores['rougeL']:.3f}")
                 
                 # BERT 점수
                 st.sidebar.write("#### BERT 점수")
@@ -233,6 +277,7 @@ def main():
             )
             
             if view_mode == "특정 주제":
+                # TODO: 이곳에 scatter plot 들어갈 예정, 연결바람
                 st.info("""
                 💡 **특정 주제 모드 사용 방법**
                 - 여기에 scatter plot 들어갈 예정.
@@ -258,19 +303,22 @@ def main():
                             st.session_state.selected_sentence = sent
                         
                         # 팝업 표시
-                        # TODO: Brushing 재요약 부분 여기 markdown으로 해결하기
                         if st.session_state.popup_states.get(i, False):
-                            st.markdown(
-                                f"""
-                                <div class="summary-box">
-                                    <h4>상세 정보</h4>
-                                    <p>• 핵심 키워드: [관련 키워드들]</p>
-                                    <p>• 관련 문맥: {sent}와 관련된 추가적인 설명</p>
-                                    <p>• 연관 개념: [관련된 주요 개념들]</p>
-                                </div>
-                                """,
-                                unsafe_allow_html=True
-                            )
+                            # 재요약 결과 가져오기
+                            resummarize_result = get_resummarize(sent, model_name)
+                            
+                            if resummarize_result:
+                                st.markdown(
+                                    f"""
+                                    <div class="summary-box">
+                                        <h4>Brushing Resummarize ✨</h4>
+                                        <p>• 재요약 결과: {resummarize_result['summary']}</p>
+                                        <p>• 관련 문맥: {sent}</p>
+                                    """,
+                                    unsafe_allow_html=True
+                                )
+                            else:
+                                st.error("재요약 결과를 가져오는데 실패했습니다.")
 
             if view_mode == "전체 문장":
                 st.info("""
@@ -307,6 +355,7 @@ def main():
                     # 원본 텍스트를 문장 단위로 분리
                     original_sentences = st.session_state.text_input.split('. ')
                     
+                    # TODO: 선택된 요약 문장과 관련된 원본 문장 (clustering에서 활용) 연결 (현재는 random하게 표시 중)
                     # 선택된 요약 문장과 관련된 원본 문장 찾기
                     html_content = ""
                     for orig_sent in original_sentences:
