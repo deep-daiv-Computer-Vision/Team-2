@@ -1,19 +1,29 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS  # pip install flask-cors
 from mainrun import summarize_and_visualization, brushing_and_resummarize
 
 app = Flask(__name__)
+CORS(app)  # CORS 활성화
 
 @app.route('/summarize', methods=['POST'])
 def summarize():
-    # 프론트엔드로부터 '.txt' 파일과 '선택할 모델'을 받습니다.
-    file = request.files.get('file')
+    # 텍스트 직접 입력과 파일 업로드 두 가지 경우 처리
+    text_to_summarize = None
     selected_model = request.form.get('model')
 
-    if not file or not file.filename.endswith('.txt'):
-        return jsonify({'error': '유효한 .txt 파일을 업로드하세요.'}), 400
+    # 파일 업로드 케이스 체크
+    if 'file' in request.files:
+        file = request.files['file']
+        if file and file.filename.endswith('.txt'):
+            text_to_summarize = file.read().decode('utf-8')
+    
+    # 직접 텍스트 입력 케이스 체크
+    elif 'text' in request.form:
+        text_to_summarize = request.form.get('text')
 
-    # 파일 내용을 읽습니다.
-    text_to_summarize = file.read().decode('utf-8')
+    # 텍스트가 없는 경우 에러 반환
+    if not text_to_summarize:
+        return jsonify({'error': '텍스트를 입력하거나 파일을 업로드해주세요.'}), 400
 
     # 실험 실행
     try:
@@ -26,12 +36,13 @@ def summarize():
 
 @app.route('/resummarize', methods=['POST'])
 def resummarize():
-    # 프론트엔드로부터 '수정된 텍스트'와 '선택할 모델'을 받습니다.
     data = request.json
     modified_text = data.get('text')
     selected_model = data.get('model')
 
-    # 실험 실행
+    if not modified_text:
+        return jsonify({'error': '텍스트를 입력해주세요.'}), 400
+
     try:
         experiment_results = brushing_and_resummarize(modified_text, selected_model)
     except Exception as e:
