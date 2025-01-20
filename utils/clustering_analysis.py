@@ -31,9 +31,9 @@ def analyze_text_clusters(segments: list, index: list, eps: float=0.3, min_sampl
         
         theme_sentences.append(tmp_sentence)
     
-    analyze_sentences(theme_sentences, eps, min_samples)
+    return analyze_sentences(theme_sentences, eps, min_samples)
 
-def analyze_sentences(original_sentences: list, eps: float=0.3, min_samples: int=2):
+def analyze_sentences(original_sentences: list, eps: float=0.3, min_samples: int=2, visualize_pth: str='umap.png'):
     """
     문장들을 임베딩하고 클러스터링하여 시각화하는 함수
     
@@ -79,7 +79,9 @@ def analyze_sentences(original_sentences: list, eps: float=0.3, min_samples: int
     plt.title("UMAP Visualization of Embeddings by Theme")
     plt.xlabel("UMAP Dimension 1")
     plt.ylabel("UMAP Dimension 2")
-    plt.savefig("umap.png")
+    plt.savefig(visualize_pth)
+
+    return visualize_pth
 
 ## 시각화 모듈 사용 방법
 # analyze_text_clusters(segments, concat_indices)
