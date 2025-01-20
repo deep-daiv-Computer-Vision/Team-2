@@ -1,22 +1,19 @@
 import numpy as np
-from sentence_transformers import SentenceTransformer
+from transformers import AutoTokenizer, AutoModel
 from sklearn.cluster import DBSCAN
 from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
-import nltk
-from nltk.tokenize import sent_tokenize
+from .segment_embedding import encode_segments
+from matplotlib.colors import ListedColormap
+import umap
 
-# NLTK 데이터 다운로드
-nltk.download('punkt')
-nltk.download('punkt_tab')
-
-def analyze_text_clusters(original_text: str, summary_text: str, eps: float=0.3, min_samples: int=2):
+def analyze_text_clusters(segments: list, index: list, eps: float=0.3, min_samples: int=2):
     """
-    원본 텍스트와 요약 텍스트를 받아 클러스터링 분석을 수행하는 함수
+    원본 텍스트와 요약 텍스트를 받아 클러스터링 분석 및 시각화를 수행하는 함수
     
     Args:
-        original_text (str): 원본 텍스트
+        original_text (list): 원본 텍스트
         summary_text (str): 요약 텍스트
         eps (float): DBSCAN의 epsilon 파라미터
         min_samples (int): DBSCAN의 최소 샘플 수 파라미터
@@ -24,12 +21,19 @@ def analyze_text_clusters(original_text: str, summary_text: str, eps: float=0.3,
     Returns:
         tuple: (labels, embeddings_2d, original_sentences, summary_sentences)
     """
-    original_sentences = sent_tokenize(original_text, language='english')
-    summary_sentences = sent_tokenize(summary_text, language='english')
     
-    return analyze_sentences(original_sentences, summary_sentences, eps, min_samples)
+    theme_sentences = []
+    for idx, sentence_idx in enumerate(index):
+        tmp_sentence = []
 
-def analyze_sentences(original_sentences: list, summary_sentences: list, eps: float=0.3, min_samples: int=2):
+        for st_idx in sentence_idx:
+            tmp_sentence.append(segments[st_idx])
+        
+        theme_sentences.append(tmp_sentence)
+    
+    analyze_sentences(theme_sentences, eps, min_samples)
+
+def analyze_sentences(original_sentences: list, eps: float=0.3, min_samples: int=2):
     """
     문장들을 임베딩하고 클러스터링하여 시각화하는 함수
     
@@ -42,68 +46,40 @@ def analyze_sentences(original_sentences: list, summary_sentences: list, eps: fl
     Returns:
         tuple: (labels, embeddings_2d)
     """
-    # 기존 analyze_sentences 함수의 내용
-    all_sentences = original_sentences + summary_sentences
-    
-    model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
-    embeddings = model.encode(all_sentences)
-    
-    scaler = StandardScaler()
-    scaled_embeddings = scaler.fit_transform(embeddings)
-    
-    clustering = DBSCAN(eps=eps, min_samples=min_samples).fit(scaled_embeddings)
-    labels = clustering.labels_
-    
-    tsne = TSNE(n_components=2, random_state=42, perplexity=min(30, len(all_sentences)-1))
-    embeddings_2d = tsne.fit_transform(scaled_embeddings)
-    
-    return labels, embeddings_2d, original_sentences, summary_sentences
+    all_sentences = original_sentences
+    all_embeddings = []
 
-def visualize_clusters(labels, embeddings_2d, original_sentences, summary_sentences):
-    """
-    클러스터링 결과를 시각화하는 함수
-    
-    Args:
-        labels: 클러스터 레이블
-        embeddings_2d: 2차원으로 축소된 임베딩
-        original_sentences: 원본 문장 리스트
-        summary_sentences: 요약 문장 리스트
-    """
-    plt.figure(figsize=(12, 8))
-    
-    n_original = len(original_sentences)
-    unique_labels = np.unique(labels)
-    colors = plt.cm.rainbow(np.linspace(0, 1, len(unique_labels)))
-    
-    for label, color in zip(unique_labels, colors):
-        mask_orig = np.logical_and(labels == label, np.arange(len(labels)) < n_original)
-        plt.scatter(embeddings_2d[mask_orig, 0], embeddings_2d[mask_orig, 1], 
-                   c=[color], marker='o', s=100, label=f'Cluster {label}')
-        
-        mask_summ = np.logical_and(labels == label, np.arange(len(labels)) >= n_original)
-        plt.scatter(embeddings_2d[mask_summ, 0], embeddings_2d[mask_summ, 1], 
-                   c=[color], marker='^', s=150)
-    
-    plt.title('Sentence Clustering Visualization\n(△: 요약 문장, ○: 원본 문장)')
-    plt.xlabel('t-SNE Dimension 1')
-    plt.ylabel('t-SNE Dimension 2')
-    plt.legend()
-    plt.show()
-    
-######### 사용 예시 #########
-# from utils.clustering_analysis import analyze_text_clusters, visualize_clusters
+    for sentence in all_sentences:
+        embeddings = encode_segments(sentence)
+        all_embeddings.append(embeddings)
 
-## 텍스트 준비
-# original_text = "..."
-# summary_text = "..."
+    flattened_embeddings = np.vstack(all_embeddings)  # 모든 theme의 embedding을 하나로 합침
+    theme_labels = []  # 각 theme에 해당하는 레이블 생성
+    for i, embeddings in enumerate(all_embeddings):
+        theme_labels.extend([i] * len(embeddings))  # theme ID를 레이블로 추가
 
-## 분석 실행
-# labels, embeddings_2d, original_sentences, summary_sentences = analyze_text_clusters(
-#     original_text, 
-#     summary_text,
-#     eps=0.3,
-#     min_samples=2
-# )
+    theme_labels = np.array(theme_labels)
 
-## 시각화
-# visualize_clusters(labels, embeddings_2d, original_sentences, summary_sentences)
+    reducer = umap.UMAP(metric='cosine', n_neighbors=15, min_dist=0.1, n_components=2, random_state=42)
+    reduced_embeddings = reducer.fit_transform(flattened_embeddings)
+
+    tab10 = plt.cm.get_cmap('tab10', 10)
+    colors = tab10.colors[:5]
+    cmap = ListedColormap(colors)
+    
+    plt.figure(figsize=(10, 8))
+    scatter = plt.scatter(
+        reduced_embeddings[:, 0],
+        reduced_embeddings[:, 1],
+        c=theme_labels,
+        cmap=cmap,
+        s=10
+    )
+    plt.colorbar(scatter, ticks=range(5), label="Theme ID")
+    plt.title("UMAP Visualization of Embeddings by Theme")
+    plt.xlabel("UMAP Dimension 1")
+    plt.ylabel("UMAP Dimension 2")
+    plt.savefig("umap.png")
+
+## 시각화 모듈 사용 방법
+# analyze_text_clusters(segments, concat_indices)
