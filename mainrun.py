@@ -98,7 +98,7 @@ def exe_by_sentences(text: str):
 
     return segments, concat_indices, batch_summaries, batch_importances, evaluation_results, visualize_pth
 
-def resummarize_with_sentece(full_text: str, target_text: str):
+def resummarize_with_sentence(full_text: str, target_text: str):
     # ========================= [Load config] ===========================
     with open("config.yaml", "r") as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
