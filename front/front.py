@@ -50,27 +50,46 @@ def get_summary_and_attention(text, model_name):
                 "http://localhost:5000/summarize",
                 json=data
             )
-
         if response.status_code == 200:
             result = response.json()
-            experiment = result['experiments'][0]
-            token_importance = np.array(experiment.get('token_importance', []))
             
-            if len(token_importance) == 0:
-                return experiment.get('summary'), np.zeros(len(text.split()))
+            # 배치 요약문과 중요도 점수 추출
+            batch_summaries = result.get('batch_summaries', [])
+            batch_importances = result.get('batch_importances', [])
+            segments = result.get('segments', [])
+            concat_indices = result.get('concat_indices', [])
+            evaluation_results = result.get('evaluation_results', {})
+            
+            # 시각화 이미지 처리
+            visualize_image = result.get('visualize_image')
+            if visualize_image:
+                # ISO-8859-1로 인코딩된 이미지 데이터를 바이너리로 변환
+                image_binary = visualize_image.encode('ISO-8859-1')
+                # 이미지 표시 로직 추가 필요
                 
-            # 정규화 시 예외 처리
+            if not batch_importances:
+                return batch_summaries, np.zeros(len(text.split()))
+                
+            # 토큰 중요도 정규화
+            token_importance = np.array(batch_importances)
             token_max = token_importance.max()
             token_min = token_importance.min()
+            
             if token_max == token_min:
                 normalized_importance = np.full_like(token_importance, 0.5)
             else:
                 normalized_importance = (token_importance - token_min) / (token_max - token_min)
                 
-            return experiment.get('summary'), normalized_importance
+            return {
+                'summaries': batch_summaries,
+                'importance_scores': normalized_importance,
+                'segments': segments,
+                'concat_indices': concat_indices,
+                'evaluation_results': evaluation_results
+            }
         else:
             st.error(f"API 오류: {response.status_code}")
-            return None, None
+            return None
     except Exception as e:
         st.error(f"연결 오류: {str(e)}")
         return None, None
