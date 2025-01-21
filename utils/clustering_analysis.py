@@ -73,7 +73,7 @@ def analyze_sentences(original_sentences: list, eps: float=0.3, min_samples: int
         reduced_embeddings[:, 1],
         c=theme_labels,
         cmap=cmap,
-        s=10
+        s=100
     )
     plt.colorbar(scatter, ticks=range(5), label="Theme ID")
     plt.title("UMAP Visualization of Embeddings by Theme")

@@ -110,7 +110,7 @@ def calculate_semantic_similarity(original_text, summary, sent2vec=True):
     Returns:
     - float: sementic_similarity.
     """
-    embeddings = encode_sent2vec([summary, original_text])
+    embeddings = encode_segments([summary, original_text])
     sementic_similarity = cosine_similarity(embeddings[0], embeddings[1])
 
     return sementic_similarity

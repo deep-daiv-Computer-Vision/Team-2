@@ -64,7 +64,7 @@ def exe_by_sentences(text: str):
         for i in range(0, len(batch_clusters), mini_batch_size):
             mini_batch_summaries, mini_batch_importances = summarizer(batch_clusters[i:i+mini_batch_size], cal_grad=True, **config.summary.args)
             batch_summaries.append(mini_batch_summaries)
-            batch_importances.append(mini_batch_importances)
+            batch_importances.append(mini_batch_importances.cpu().numpy().tolist())
         total_summaries = " ".join(batch_summaries)
     else:
         batch_summaries = summarizer(batch_clusters, **config.summary.args)
@@ -76,7 +76,7 @@ def exe_by_sentences(text: str):
     s = time.time()
     
     rouge1, rouge2, rougeL = calculate_rouge_scores(text, total_summaries)
-    s_score = calculate_sementic_similarity(text, total_summaries)
+    s_score = calculate_semantic_similarity(text, total_summaries)
 
     # scale score * 100
     rouge1, rouge2, rougeL = rouge1*100, rouge2*100, rougeL*100

@@ -48,7 +48,7 @@ def get_summary_and_attention(text, model_name):
             data['text'] = text
             response = requests.post(
                 "http://localhost:5000/summarize",
-                data=data
+                json=data
             )
 
         if response.status_code == 200:

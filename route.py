@@ -20,7 +20,7 @@ def summarize():
         if not request.is_json:
             return jsonify({"error": "Request must be in JSON format"}), 400
 
-        data = request.data.get_json()
+        data = request.get_json()
         select_model = data.get("select_model")
         text = data.get("text")
         file = request.files.get("file")
@@ -51,7 +51,7 @@ def summarize():
             return jsonify({"error": "Text content is empty"}), 404
 
         # Call exe_by_sentences function
-        batch_summaries, batch_importances, evaluation_results, visualize_pth, segments, concat_indices = exe_by_sentences(text)
+        segments, concat_indices, batch_summaries, batch_importances, evaluation_results, visualize_pth = exe_by_sentences(text)
 
         # Prepare response
         response = {
@@ -98,4 +98,4 @@ def resummarize():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=False)
