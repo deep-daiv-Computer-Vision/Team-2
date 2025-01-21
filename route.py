@@ -3,9 +3,10 @@ import os
 from werkzeug.utils import secure_filename
 import traceback
 from mainrun import exe_by_sentences, resummarize_with_sentence
+from flask_cors import CORS
 
 app = Flask(__name__)
-cors(app)
+CORS(app)
 
 ALLOWED_EXTENSIONS = {'txt'}
 
@@ -19,22 +20,22 @@ def summarize():
         if not request.is_json:
             return jsonify({"error": "Request must be in JSON format"}), 400
 
-        data = request.get_json()
+        data = request.data.get_json()
         select_model = data.get("select_model")
         text = data.get("text")
         file = request.files.get("file")
 
         # Validate inputs
         if not select_model:
-            return jsonify({"error": "select_model is required"}), 400
+            return jsonify({"error": "select_model is required"}), 401
 
         if (text and file) or (not text and not file):
-            return jsonify({"error": "Either text or file must be provided, but not both"}), 400
+            return jsonify({"error": "Either text or file must be provided, but not both"}), 402
 
         # Process text or file
         if file:
             if not allowed_file(file.filename):
-                return jsonify({"error": "Only .txt files are allowed"}), 400
+                return jsonify({"error": "Only .txt files are allowed"}), 403
 
             filename = secure_filename(file.filename)
             filepath = os.path.join("/tmp", filename)
@@ -47,7 +48,7 @@ def summarize():
 
         # Ensure text is not empty
         if not text.strip():
-            return jsonify({"error": "Text content is empty"}), 400
+            return jsonify({"error": "Text content is empty"}), 404
 
         # Call exe_by_sentences function
         batch_summaries, batch_importances, evaluation_results, visualize_pth, segments, concat_indices = exe_by_sentences(text)

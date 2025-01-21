@@ -31,7 +31,7 @@ def create_attention_html(text, attention_scores):
 def get_summary_and_attention(text, model_name):
     """텍스트 요약 및 어텐션 스코어 계산"""
     try:
-        data = {'model': model_name}
+        data = {'select_model': model_name}
         
         # 파일 업로드인 경우
         if isinstance(text, bytes) or hasattr(text, 'read'):
