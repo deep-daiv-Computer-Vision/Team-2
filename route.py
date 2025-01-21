@@ -1,55 +1,100 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-from mainrun import summarize_and_visualization, brushing_and_resummarize
+from flask import Flask, request, jsonify, send_file, send_from_directory
+import os
+from werkzeug.utils import secure_filename
+import traceback
+from mainrun import exe_by_sentences, resummarize_with_sentence
 
 app = Flask(__name__)
-CORS(app)
+cors(app)
+
+ALLOWED_EXTENSIONS = {'txt'}
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 @app.route('/summarize', methods=['POST'])
 def summarize():
-    # 텍스트 직접 입력과 파일 업로드 두 가지 경우 처리
-    text_to_summarize = None
-    selected_model = request.form.get('model')
-
-    # 파일 업로드 케이스 체크
-    if 'file' in request.files:
-        file = request.files['file']
-        if file and file.filename.endswith('.txt'):
-            text_to_summarize = file.read().decode('utf-8')
-    
-    # 직접 텍스트 입력 케이스 체크
-    elif 'text' in request.form:
-        text_to_summarize = request.form.get('text')
-
-    # 텍스트가 없는 경우 에러 반환
-    if not text_to_summarize:
-        return jsonify({'error': '텍스트를 입력하거나 파일을 업로드해주세요.'}), 400
-
-    # 실험 실행
     try:
-        experiment_results = summarize_and_visualization(text_to_summarize, selected_model)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        # Parse JSON input
+        if not request.is_json:
+            return jsonify({"error": "Request must be in JSON format"}), 400
 
-    # 실험 결과를 반환합니다.
-    return jsonify({'experiments': experiment_results})
+        data = request.get_json()
+        select_model = data.get("select_model")
+        text = data.get("text")
+        file = request.files.get("file")
+
+        # Validate inputs
+        if not select_model:
+            return jsonify({"error": "select_model is required"}), 400
+
+        if (text and file) or (not text and not file):
+            return jsonify({"error": "Either text or file must be provided, but not both"}), 400
+
+        # Process text or file
+        if file:
+            if not allowed_file(file.filename):
+                return jsonify({"error": "Only .txt files are allowed"}), 400
+
+            filename = secure_filename(file.filename)
+            filepath = os.path.join("/tmp", filename)
+            file.save(filepath)
+
+            with open(filepath, "r") as f:
+                text = f.read()
+
+            os.remove(filepath)
+
+        # Ensure text is not empty
+        if not text.strip():
+            return jsonify({"error": "Text content is empty"}), 400
+
+        # Call exe_by_sentences function
+        batch_summaries, batch_importances, evaluation_results, visualize_pth, segments, concat_indices = exe_by_sentences(text)
+
+        # Prepare response
+        response = {
+            "batch_summaries": batch_summaries, # list(str)
+            "batch_importances": batch_importances, # list(float)
+            "evaluation_results": evaluation_results, # dict {'rouge1','rouge2','rougeL','bert_score'}
+            "segments": segments, # list(str)
+            "concat_indices": concat_indices # list(int) -> concat_indices are pointed to segments's element
+        }
+
+        # If visualize_pth points to a valid file, include image content directly
+        if os.path.exists(visualize_pth) and visualize_pth.endswith(".png"):
+            with open(visualize_pth, "rb") as img_file:
+                response["visualize_image"] = img_file.read().decode("ISO-8859-1")  # Encode binary image data as string
+
+        return jsonify(response)
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/resummarize', methods=['POST'])
 def resummarize():
-    data = request.json
-    modified_text = data.get('text')
-    selected_model = data.get('model')
-
-    if not modified_text:
-        return jsonify({'error': '텍스트를 입력해주세요.'}), 400
-
     try:
-        experiment_results = brushing_and_resummarize(modified_text, selected_model)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        # Parse JSON input
+        if not request.is_json:
+            return jsonify({"error": "Request must be in JSON format"}), 400
 
-    # 실험 결과를 반환합니다.
-    return jsonify({'experiments': experiment_results})
+        data = request.get_json()
+        full_text = data.get("full_text")
+        target_text = data.get("target_text")
+
+        # Validate inputs
+        if not full_text or not target_text:
+            return jsonify({"error": "Both full_text and target_text are required"}), 400
+
+        # Call resummarize_with_sentece function
+        summary = resummarize_with_sentence(full_text, target_text)
+
+        return jsonify({"summary": summary})
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
