@@ -10,6 +10,10 @@ from datasets import load_dataset
 from bert_score import score as bert_score
 from rouge_score import rouge_scorer
 import matplotlib.pyplot as plt
+from transformers import pipeline
+import torch
+from sentence_transformers import SentenceTransformer
+from sentence_transformers.util import cos_sim
 
 # ======================= [custom modules] =========================
 from utils.eval_similarity import *
@@ -98,34 +102,48 @@ def exe_by_sentences(text: str):
 
     return segments, concat_indices, batch_summaries, batch_importances, evaluation_results, visualize_pth
 
-def resummarize_with_sentence(full_text: str, target_text: str):
-    # ========================= [Load config] ===========================
-    with open("config.yaml", "r") as f:
-        config = yaml.load(f, Loader=yaml.FullLoader)
-        config = Box(config)
-
-    # ========================== [Segmentation] ========================
-    print("Segmentating... ", end="", flush=True)
-    s = time.time()
-    segments = segmentate_sentence(full_text, **config.segment.args)
-    e = time.time()
-    print("Done", f"{e-s:.2f} sec")
-
-    # ========================== [Filtering] ==========================
-    print("Filtering...   ", end="", flush=True)
-
-    filtered_text = []
-    for segment in segments:
-        if calculate_semantic_similarity(segment, target_text) > 0.8:
-            filtered_text.append(segment)
+def resummarize_with_sentence(full_text, target_text, device=None):
+    """
+    특정 문장에 대해 재요약을 수행하는 함수
+    """
+    # device가 None이면 기본값 설정
+    if device is None:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
-    filtered_text = " ".append(filtered_text)
-
-    # ========================== [Summarize] ===========================
-    print("Summarizing...  ", end="", flush=True)
-    batch_summaries = summarizer(filtered_text, cal_grad=False, **config.summary.args)
-
-    return batch_summaries
+    # n_word 매개변수 추가 (예: 50단어씩 분할)
+    segments = segmentate_sentence(full_text, n_word=50)
+    
+    # 타겟 문장과의 유사도 계산
+    model = SentenceTransformer('all-MiniLM-L6-v2').to(device)
+    target_embedding = model.encode([target_text], convert_to_tensor=True)
+    segment_embeddings = model.encode(segments, convert_to_tensor=True)
+    
+    # 코사인 유사도 계산 (util.pytorch_cos_sim 대신 cos_sim 사용)
+    similarities = cos_sim(target_embedding, segment_embeddings)[0]
+    
+    # 유사도가 높은 문장들 필터링
+    threshold = 0.5
+    filtered_indices = torch.where(similarities > threshold)[0]
+    filtered_text = [segments[i] for i in filtered_indices]
+    
+    # 문자열 join
+    filtered_text = " ".join(filtered_text) if isinstance(filtered_text, list) else filtered_text
+    
+    # 요약 수행
+    summarizer = pipeline(
+        task="summarization",
+        model="facebook/bart-large-cnn",
+        device=0 if str(device) == 'cuda' else -1
+    )
+    
+    summary = summarizer(
+        filtered_text,
+        max_length=130,
+        min_length=30,
+        do_sample=False
+    )[0]['summary_text']
+    
+    return summary
 
 # # ========================= [Load config] ===========================
 # with open("config.yaml", "r") as f:
