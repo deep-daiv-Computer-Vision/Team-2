@@ -1,6 +1,9 @@
+import base64
+import io
 import streamlit as st
 import numpy as np
 import requests
+from PIL import Image
 
 # TODO: 백엔드와 연결하는 작업 필요
 
@@ -9,6 +12,29 @@ st.set_page_config(
     page_title="XAI Summarization",
     page_icon="🤖", layout="wide"
     )
+
+def show_importance_score(importance_score: list, segments: list, concat_indices: list):
+    # 들어오기 전에 이미 theme index에 해당하는 importance score, concat_indices가 들어왔다 가정
+    whole_token = len(importance_score)
+    output_list = [[] * len(segments)]
+
+    # for문을 돌아가며 concat_indices 기반 해당 segments가 몇 단어로 이뤄져 있는지 확인
+    # 해당 단어만큼 importance score을 output_list[(segment_index)[scores]] 형식으로 저장
+    # importance 또는 concat_indices의 끝에 해당하면 바로 return output_list
+    current_index = 0
+
+    for idx, seg_index in enumerate(concat_indices):
+        seg_tokens = len(segments[seg_index].split(' '))
+
+        # 전체 segment에 해당하는 indices를 못 돌았는데 끝나버렸을때
+        if current_index + seg_tokens > whole_token:
+            return idx, output_list
+
+        output_list[seg_index].append(importance_score[current_index:current_index + seg_tokens])
+        current_index += seg_tokens
+    
+    return -1, output_list
+
 
 def create_attention_html(text, attention_scores):
     """텍스트에 attention score를 적용하여 HTML로 변환"""
@@ -64,7 +90,7 @@ def get_summary_and_attention(text, model_name):
             visualize_image = result.get('visualize_image')
             if visualize_image:
                 # ISO-8859-1로 인코딩된 이미지 데이터를 바이너리로 변환
-                image_binary = visualize_image.encode('ISO-8859-1')
+                image_binary = base64.b64decode(visualize_image)
                 # 이미지 표시 로직 추가 필요
                 
             if not batch_importances:
@@ -85,7 +111,8 @@ def get_summary_and_attention(text, model_name):
                 'importance_scores': normalized_importance,
                 'segments': segments,
                 'concat_indices': concat_indices,
-                'evaluation_results': evaluation_results
+                'evaluation_results': evaluation_results,
+                'image_binary': image_binary
             }
         else:
             st.error(f"API 오류: {response.status_code}")
@@ -146,20 +173,20 @@ def calculate_bert_score(summary, reference):
         st.error(f"연결 오류: {str(e)}")
         return 0.0
 
-def get_resummarize(text, model_name):
+def get_resummarize(full_text, target_text):
     """선택된 문장에 대한 재요약 결과 가져오기"""
     try:
         response = requests.post(
             "http://localhost:5000/resummarize",
             json={
-                "text": text,
-                "model": model_name
+                "full_text": full_text,
+                "target_text": target_text
             }
         )
         if response.status_code == 200:
             result = response.json()
             # 첫 번째 실험 결과만 반환
-            return result['experiments'][0] if result['experiments'] else None
+            return result if result else None
         else:
             st.error(f"재요약 API 오류: {response.status_code}")
             return None
@@ -248,6 +275,8 @@ def main():
     
     # 메인 영역 설정
     col1, col2 = st.columns(2)
+
+    image_ = None
     
     # 요약 버튼
     if st.sidebar.button("요약하기", type="primary"):
@@ -262,11 +291,11 @@ def main():
                 st.session_state.text_input = text_input
                 
                 # ROUGE와 BERTScore 계산 및 표시
-                # ROUGE 점수 계산
-                rouge_scores = model_result['evaluation_results']
-                
-                # BERTScore 계산
-                bert_score_value = model_result['evaluation_results']['bert_score']
+                evaluation_scores = model_result['evaluation_results']
+
+                # Image binary형식으로 받아옴
+                image_ = model_result['image_binary']
+                image_ = Image.open(io.BytesIO(image_))
                 
                 # 사이드바에 평가 점수 표시
                 st.sidebar.divider()
@@ -276,14 +305,14 @@ def main():
                 st.sidebar.write("#### ROUGE 점수")
                 col1_rouge, col2_rouge = st.sidebar.columns(2)
                 with col1_rouge:
-                    st.metric("ROUGE-1", f"{rouge_scores['rouge1']:.3f}")
-                    st.metric("ROUGE-2", f"{rouge_scores['rouge2']:.3f}")
+                    st.metric("ROUGE-1", f"{evaluation_scores['rouge1']:.3f}")
+                    st.metric("ROUGE-2", f"{evaluation_scores['rouge2']:.3f}")
                 with col2_rouge:
-                    st.metric("ROUGE-L", f"{rouge_scores['rougeL']:.3f}")
+                    st.metric("ROUGE-L", f"{evaluation_scores['rougeL']:.3f}")
                 
                 # BERT 점수
                 st.sidebar.write("#### BERT 점수")
-                st.sidebar.metric("BERTScore", f"{bert_score_value:.3f}")
+                st.sidebar.metric("BERTScore", f"{evaluation_scores['bert_score']:.3f}")
 
     # session_state에 저장된 결과가 있을 때만 표시
     if 'summary' in st.session_state:
@@ -297,6 +326,7 @@ def main():
             
             if view_mode == "특정 주제":
                 # TODO: 이곳에 scatter plot 들어갈 예정, 연결바람
+                st.image(image_, caption="Clustering Visualization", use_column_width=True)
                 st.info("""
                 💡 **특정 주제 모드 사용 방법**
                 - 여기에 scatter plot 들어갈 예정.
@@ -324,14 +354,14 @@ def main():
                         # 팝업 표시
                         if st.session_state.popup_states.get(i, False):
                             # 재요약 결과 가져오기
-                            resummarize_result = get_resummarize(sent, model_name)
+                            resummarize_result = get_resummarize(text_input, sent)
                             
                             if resummarize_result:
                                 st.markdown(
                                     f"""
                                     <div class="summary-box">
                                         <h4>Brushing Resummarize ✨</h4>
-                                        <p>• 재요약 결과: {resummarize_result['summary']}</p>
+                                        <p>• 재요약 결과: {resummarize_result}</p>
                                         <p>• 관련 문맥: {sent}</p>
                                     """,
                                     unsafe_allow_html=True
