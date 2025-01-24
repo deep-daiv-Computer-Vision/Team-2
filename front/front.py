@@ -254,19 +254,19 @@ def main():
         if text_input:
             with st.spinner("요약 중..."):
                 # 실제 요약 및 어텐션 스코어 계산
-                summary, attention_scores = get_summary_and_attention(text_input, model_name)
+                model_result = get_summary_and_attention(text_input, model_name)
                 
                 # session_state에 결과 저장
-                st.session_state.summary = summary
-                st.session_state.attention_scores = attention_scores
+                st.session_state.summary = model_result['summaries']
+                st.session_state.attention_scores = model_result['importance_score']
                 st.session_state.text_input = text_input
                 
                 # ROUGE와 BERTScore 계산 및 표시
                 # ROUGE 점수 계산
-                rouge_scores = calculate_rouge(summary, text_input)
+                rouge_scores = model_result['evaluation_results']
                 
                 # BERTScore 계산
-                bert_score_value = calculate_bert_score(summary, text_input)
+                bert_score_value = model_result['evaluation_results']['bert_score']
                 
                 # 사이드바에 평가 점수 표시
                 st.sidebar.divider()
