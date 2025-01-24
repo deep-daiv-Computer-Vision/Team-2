@@ -4,12 +4,17 @@ import streamlit as st
 import numpy as np
 import requests
 from PIL import Image
+from sklearn.metrics.pairwise import cosine_similarity
+from sentence_transformers import SentenceTransformer
+import plotly.express as px
+import pandas as pd
+import umap.umap_ as umap
 
 # TODO: 백엔드와 연결하는 작업 필요
 
 # 페이지 설정을 가장 먼저 호출
 st.set_page_config(
-    page_title="XAI Summarization",
+    page_title="XAIkit-learn",
     page_icon="🤖", layout="wide"
     )
 
@@ -39,6 +44,14 @@ def show_importance_score(importance_score: list, segments: list, concat_indices
 def create_attention_html(text, attention_scores):
     """텍스트에 attention score를 적용하여 HTML로 변환"""
     words = text.split()
+    
+    # attention_scores를 1차원 배열로 변환
+    if isinstance(attention_scores, np.ndarray):
+        if attention_scores.ndim > 1:
+            attention_scores = attention_scores.mean(axis=tuple(range(attention_scores.ndim-1)))
+    else:
+        attention_scores = np.array(attention_scores).flatten()
+    
     # attention_scores의 길이가 words의 길이와 다른 경우 처리
     if len(attention_scores) != len(words):
         # 길이를 맞추기 위해 attention_scores를 리샘플링
@@ -50,8 +63,8 @@ def create_attention_html(text, attention_scores):
     
     html = ""
     for word, score in zip(words, attention_scores):
-        # score는 이미 0-1 사이의 값으로 정규화되어 있음
-        html += f'<span style="background-color: rgba(255, 0, 0, {score:.2f})">{word}</span> '
+        # 주황색 하이라이트 사용 (255, 165, 0)
+        html += f'<span style="background-color: rgba(255, 165, 0, {float(score):.2f}); color: black;">{word}</span> '
     return html
 
 def get_summary_and_attention(text, model_name):
@@ -76,8 +89,12 @@ def get_summary_and_attention(text, model_name):
                 "http://localhost:5000/summarize",
                 json=data
             )
+            
         if response.status_code == 200:
             result = response.json()
+            
+            # 디버깅을 위한 응답 내용 출력
+            st.write("API 응답 내용:", result.keys())
             
             # 배치 요약문과 중요도 점수 추출
             batch_summaries = result.get('batch_summaries', [])
@@ -86,40 +103,33 @@ def get_summary_and_attention(text, model_name):
             concat_indices = result.get('concat_indices', [])
             evaluation_results = result.get('evaluation_results', {})
             
-            # 시각화 이미지 처리
-            visualize_image = result.get('visualize_image')
-            if visualize_image:
-                # ISO-8859-1로 인코딩된 이미지 데이터를 바이너리로 변환
-                image_binary = base64.b64decode(visualize_image)
-                # 이미지 표시 로직 추가 필요
-                
-            if not batch_importances:
-                return batch_summaries, np.zeros(len(text.split()))
-                
             # 토큰 중요도 정규화
-            token_importance = np.array(batch_importances)
-            token_max = token_importance.max()
-            token_min = token_importance.min()
+            token_importance = np.array(batch_importances[0] if isinstance(batch_importances[0], list) else batch_importances)
+            if token_importance.ndim > 1:
+                token_importance = token_importance.mean(axis=tuple(range(token_importance.ndim-1)))
+            
+            token_max = np.max(token_importance)
+            token_min = np.min(token_importance)
             
             if token_max == token_min:
                 normalized_importance = np.full_like(token_importance, 0.5)
             else:
                 normalized_importance = (token_importance - token_min) / (token_max - token_min)
-                
+            
             return {
                 'summaries': batch_summaries,
                 'importance_scores': normalized_importance,
                 'segments': segments,
                 'concat_indices': concat_indices,
-                'evaluation_results': evaluation_results,
-                'image_binary': image_binary
+                'evaluation_results': evaluation_results
             }
+                
         else:
             st.error(f"API 오류: {response.status_code}")
             return None
     except Exception as e:
         st.error(f"연결 오류: {str(e)}")
-        return None, None
+        return None
 
 def calculate_rouge(summary, reference):
     """ROUGE 점수 계산"""
@@ -194,10 +204,86 @@ def get_resummarize(full_text, target_text):
         st.error(f"연결 오류: {str(e)}")
         return None
 
+def calculate_sentence_similarity(sentence1, sentence2_list):
+    """문장 간 코사인 유사도 계산"""
+    model = SentenceTransformer('all-MiniLM-L6-v2')
+    
+    # 문장 임베딩 계산
+    embedding1 = model.encode([sentence1], convert_to_tensor=True)
+    embedding2 = model.encode(sentence2_list, convert_to_tensor=True)
+    
+    # 코사인 유사도 계산
+    similarities = cosine_similarity(
+        embedding1.cpu().numpy(),
+        embedding2.cpu().numpy()
+    )[0]
+    
+    return similarities
+
+def create_cluster_visualization(segments, concat_indices):
+    """segments를 UMAP으로 시각화"""
+    try:
+        # 문장 임베딩 생성
+        model = SentenceTransformer('all-MiniLM-L6-v2')
+        embeddings = model.encode(segments)
+        
+        # UMAP으로 차원 축소
+        reducer = umap.UMAP(
+            n_components=2,
+            random_state=42,
+            n_neighbors=15,
+            min_dist=0.1,
+            metric='cosine'
+        )
+        embeddings_2d = reducer.fit_transform(embeddings)
+        
+        # 클러스터 레이블 생성
+        cluster_labels = [-1] * len(segments)
+        for cluster_id, indices in enumerate(concat_indices):
+            for idx in indices:
+                cluster_labels[idx] = cluster_id
+        
+        # DataFrame 생성
+        df = pd.DataFrame({
+            'x': embeddings_2d[:, 0],
+            'y': embeddings_2d[:, 1],
+            'cluster': [f'Cluster {l}' if l != -1 else 'Unclustered' for l in cluster_labels],
+            'text': segments
+        })
+        
+        # Plotly로 시각화
+        fig = px.scatter(
+            df, x='x', y='y',
+            color='cluster',
+            hover_data=['text'],
+            title='Sentence Clusters Visualization (UMAP)'
+        )
+        
+        # 레이아웃 조정 - 크기 축소
+        fig.update_layout(
+            plot_bgcolor='white',
+            width=600,  # 800 -> 600
+            height=400  # 500 -> 400
+        )
+        
+        return fig
+    
+    except Exception as e:
+        st.error(f"시각화 생성 오류: {str(e)}")
+        return None
+
 def main():
     # 팝업 상태 관리를 위한 session state 초기화
     if 'popup_states' not in st.session_state:
         st.session_state.popup_states = {}
+    
+    # selected_sentence 초기화
+    if 'selected_sentence' not in st.session_state:
+        st.session_state.selected_sentence = None
+        
+    # model_result 초기화
+    if 'model_result' not in st.session_state:
+        st.session_state.model_result = None
 
     # CSS 스타일 추가
     st.markdown("""
@@ -285,34 +371,32 @@ def main():
                 # 실제 요약 및 어텐션 스코어 계산
                 model_result = get_summary_and_attention(text_input, model_name)
                 
-                # session_state에 결과 저장
-                st.session_state.summary = model_result['summaries']
-                st.session_state.attention_scores = model_result['importance_score']
-                st.session_state.text_input = text_input
-                
-                # ROUGE와 BERTScore 계산 및 표시
-                evaluation_scores = model_result['evaluation_results']
-
-                # Image binary형식으로 받아옴
-                image_ = model_result['image_binary']
-                image_ = Image.open(io.BytesIO(image_))
-                
-                # 사이드바에 평가 점수 표시
-                st.sidebar.divider()
-                st.sidebar.header("평가 결과")
-                
-                # ROUGE 점수
-                st.sidebar.write("#### ROUGE 점수")
-                col1_rouge, col2_rouge = st.sidebar.columns(2)
-                with col1_rouge:
-                    st.metric("ROUGE-1", f"{evaluation_scores['rouge1']:.3f}")
-                    st.metric("ROUGE-2", f"{evaluation_scores['rouge2']:.3f}")
-                with col2_rouge:
-                    st.metric("ROUGE-L", f"{evaluation_scores['rougeL']:.3f}")
-                
-                # BERT 점수
-                st.sidebar.write("#### BERT 점수")
-                st.sidebar.metric("BERTScore", f"{evaluation_scores['bert_score']:.3f}")
+                if model_result is not None:  # None 체크 추가
+                    # session_state에 결과 저장
+                    st.session_state.model_result = model_result
+                    st.session_state.summary = model_result['summaries']
+                    st.session_state.attention_scores = model_result['importance_scores']
+                    st.session_state.text_input = text_input
+                    
+                    # ROUGE와 BERTScore 계산 및 표시
+                    evaluation_scores = model_result['evaluation_results']
+                    
+                    # 사이드바에 평가 점수 표시
+                    st.sidebar.divider()
+                    st.sidebar.header("평가 결과")
+                    
+                    # ROUGE 점수
+                    st.sidebar.write("#### ROUGE 점수")
+                    col1_rouge, col2_rouge = st.sidebar.columns(2)
+                    with col1_rouge:
+                        st.metric("ROUGE-1", f"{evaluation_scores['rouge1']:.3f}")
+                        st.metric("ROUGE-2", f"{evaluation_scores['rouge2']:.3f}")
+                    with col2_rouge:
+                        st.metric("ROUGE-L", f"{evaluation_scores['rougeL']:.3f}")
+                    
+                    # BERT 점수
+                    st.sidebar.write("#### BERT 점수")
+                    st.sidebar.metric("BERTScore", f"{evaluation_scores['bert_score']:.3f}")
 
     # session_state에 저장된 결과가 있을 때만 표시
     if 'summary' in st.session_state:
@@ -325,60 +409,53 @@ def main():
             )
             
             if view_mode == "특정 주제":
-                # TODO: 이곳에 scatter plot 들어갈 예정, 연결바람
-                st.image(image_, caption="Clustering Visualization", use_column_width=True)
-                st.info("""
-                💡 **특정 주제 모드 사용 방법**
-                - 여기에 scatter plot 들어갈 예정.
-                1. 아래의 요약 문장들을 클릭하세요.
-                2. 클릭한 요약 문장과 관련된 원본 문장들이 오른쪽에 하이라이트되어 표시됩니다.
-                3. 클릭한 문장에 대한 상세 정보가 아래에 표시됩니다.
-                4. 같은 문장을 다시 클릭하면 상세 정보가 닫힙니다.
-                """)
-                
-                # 요약 문장을 버튼으로 표시
-                summary_sentences = st.session_state.summary
-                
-                for i, sent in enumerate(summary_sentences):
-                    if sent:  # 빈 문장 제외
-                        if st.button(f"{sent}.", key=f"topic_summary_sent_{i}"):
-                            # 현재 버튼이 이미 활성화되어 있다면 닫기
-                            if st.session_state.popup_states.get(i, False):
-                                st.session_state.popup_states[i] = False
-                            else:
-                                # 다른 모든 팝업은 닫고 현재 선택한 것만 열기
-                                st.session_state.popup_states = {k: False for k in st.session_state.popup_states.keys()}
-                                st.session_state.popup_states[i] = True
-                            st.session_state.selected_sentence = sent
+                if st.session_state.model_result is not None:
+                    # UMAP 시각화
+                    segments = st.session_state.model_result.get('segments', [])
+                    concat_indices = st.session_state.model_result.get('concat_indices', [])
+                    
+                    if segments and concat_indices:
+                        fig = create_cluster_visualization(segments, concat_indices)
+                        if fig is not None:
+                            st.plotly_chart(fig, use_container_width=True)
                         
-                        # 팝업 표시
-                        if st.session_state.popup_states.get(i, False):
-                            # 재요약 결과 가져오기
-                            resummarize_result = get_resummarize(text_input, sent)
-                            
-                            if resummarize_result:
-                                st.markdown(
-                                    f"""
-                                    <div class="summary-box">
-                                        <h4>Brushing Resummarize ✨</h4>
-                                        <p>• 재요약 결과: {resummarize_result}</p>
-                                        <p>• 관련 문맥: {sent}</p>
-                                    """,
-                                    unsafe_allow_html=True
-                                )
-                            else:
-                                st.error("재요약 결과를 가져오는데 실패했습니다.")
-
-            if view_mode == "전체 문장":
+                        # 요약 문장들을 버튼으로 표시
+                        summary_sentences = st.session_state.get('summary', [])
+                        for i, sent in enumerate(summary_sentences):
+                            if sent:  # 빈 문장 제외
+                                if st.button(f"{sent}.", key=f"topic_summary_sent_{i}"):
+                                    if st.session_state.popup_states.get(i, False):
+                                        st.session_state.popup_states[i] = False
+                                        st.session_state.selected_sentence = None
+                                    else:
+                                        st.session_state.popup_states = {k: False for k in st.session_state.popup_states.keys()}
+                                        st.session_state.popup_states[i] = True
+                                        st.session_state.selected_sentence = sent
+                                        
+                                        # 재요약 수행
+                                        if st.session_state.text_input:
+                                            with st.spinner("재요약 중..."):
+                                                result = get_resummarize(
+                                                    st.session_state.text_input,
+                                                    sent
+                                                )
+                                                if result:
+                                                    st.markdown("#### 재요약 결과")
+                                                    st.write(result)
+                    else:
+                        st.info("클러스터링 시각화를 위한 데이터가 없습니다.")
+            
+            elif view_mode == "전체 문장":
                 st.info("""
                 💡 **전체 문장 모드 설명서**
                 - 옆에 나온 원문 텍스트의 색깔은 요약 모델이 어디를 집중했는지 시각화한 모습입니다.
                 """)
-                # 일반 텍스트를 네모 박스 안에 표시
+                # 요약 문장들을 하나의 문자열로 합쳐서 표시
+                summary_text = " ".join(st.session_state['summary']) if isinstance(st.session_state['summary'], list) else st.session_state['summary']
                 st.markdown(
                     f"""
                     <div style="border: 1px solid #ddd; padding: 15px; border-radius: 5px;">
-                        {"".append(st.session_state.summary)}
+                        {summary_text}
                     </div>
                     """,
                     unsafe_allow_html=True
@@ -390,7 +467,7 @@ def main():
             st.header("원본 텍스트")
             if view_mode == "전체 문장":
                 # 기존의 attention score 시각화
-                html_content = create_attention_html(st.session_state.text_input, st.session_state.attention_scores)
+                html_content = create_attention_html(st.session_state['text_input'], st.session_state['attention_scores'])
                 st.markdown(
                     f"""
                     <div style="border: 1px solid #ddd; padding: 15px; border-radius: 5px;">
@@ -401,29 +478,39 @@ def main():
                 )
             else:  # "특정 주제" 모드
                 if st.session_state.selected_sentence:
-                    # 원본 텍스트를 문장 단위로 분리
-                    original_sentences = st.session_state.text_input.split('. ')
+                    # segments와 concat_indices 가져오기
+                    segments = st.session_state.model_result.get('segments', [])
                     
-                    # TODO: 선택된 요약 문장과 관련된 원본 문장 (clustering에서 활용) 연결 (현재는 random하게 표시 중)
-                    # 선택된 요약 문장과 관련된 원본 문장 찾기
-                    html_content = ""
-                    for orig_sent in original_sentences:
-                        if orig_sent:  # 빈 문장 제외
-                            # 여기서는 임시로 랜덤하게 관련성 표시
-                            is_related = np.random.random() > 0.7
-                            if is_related:
-                                html_content += f'<span style="background-color: rgba(255, 255, 0, 0.5)">{orig_sent}.</span> '
-                            else:
-                                html_content += f'{orig_sent}. '
-                    
-                    st.markdown(
-                        f"""
-                        <div style="border: 1px solid #ddd; padding: 15px; border-radius: 5px;">
-                            {html_content}
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
+                    if segments:
+                        # 선택된 문장과 모든 segments의 유사도 계산
+                        similarities = calculate_sentence_similarity(
+                            st.session_state.selected_sentence,
+                            segments
+                        )
+                        
+                        # 유사도 임계값 설정
+                        similarity_threshold = 0.5
+                        
+                        html_content = ""
+                        for i, segment in enumerate(segments):
+                            if segment:  # 빈 문장 제외
+                                similarity = similarities[i]
+                                if similarity > similarity_threshold:
+                                    opacity = min(similarity, 0.9)
+                                    html_content += f'<span style="background-color: rgba(144, 238, 144, {opacity:.2f}); color: black;">{segment}</span> '
+                                else:
+                                    html_content += f'{segment} '
+                        
+                        st.markdown(
+                            f"""
+                            <div style="border: 1px solid #ddd; padding: 15px; border-radius: 5px;">
+                                {html_content}
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
+                    else:
+                        st.info("세그먼트 정보가 없습니다.")
                 else:
                     st.info("요약 문장을 클릭하면 관련된 원본 문장이 하이라이트됩니다.")
             
