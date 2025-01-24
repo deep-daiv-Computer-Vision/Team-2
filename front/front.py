@@ -337,7 +337,7 @@ def main():
                 """)
                 
                 # 요약 문장을 버튼으로 표시
-                summary_sentences = st.session_state.summary.split('. ')
+                summary_sentences = st.session_state.summary
                 
                 for i, sent in enumerate(summary_sentences):
                     if sent:  # 빈 문장 제외
@@ -378,7 +378,7 @@ def main():
                 st.markdown(
                     f"""
                     <div style="border: 1px solid #ddd; padding: 15px; border-radius: 5px;">
-                        {st.session_state.summary}
+                        {"".append(st.session_state.summary)}
                     </div>
                     """,
                     unsafe_allow_html=True
