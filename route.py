@@ -4,9 +4,13 @@ from werkzeug.utils import secure_filename
 import traceback
 from mainrun import exe_by_sentences, resummarize_with_sentence
 from flask_cors import CORS
+import torch
 
 app = Flask(__name__)
 CORS(app)
+
+# GPU 사용 가능 여부 확인 및 device 설정
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 ALLOWED_EXTENSIONS = {'txt'}
 
@@ -53,19 +57,21 @@ def summarize():
         # Call exe_by_sentences function
         segments, concat_indices, batch_summaries, batch_importances, evaluation_results, visualize_pth = exe_by_sentences(text)
 
+        print("batch_importances structure:", type(batch_importances))
+        print("first element structure:", type(batch_importances[0]))
+        if len(batch_importances) > 0 and len(batch_importances[0]) > 0:
+            print("innermost element structure:", type(batch_importances[0][0]))
+
         # Prepare response
         response = {
-            "batch_summaries": batch_summaries, # list(str)
-            "batch_importances": batch_importances, # list(float)
-            "evaluation_results": evaluation_results, # dict {'rouge1','rouge2','rougeL','bert_score'}
-            "segments": segments, # list(str)
-            "concat_indices": concat_indices # list(int) -> concat_indices are pointed to segments's element
+            "batch_summaries": batch_summaries,
+            "batch_importances": [[[float(z) for z in y] for y in x] for x in batch_importances],
+            "evaluation_results": {
+                k: float(v) for k, v in evaluation_results.items()
+            },
+            "segments": segments,
+            "concat_indices": concat_indices
         }
-
-        # If visualize_pth points to a valid file, include image content directly
-        if os.path.exists(visualize_pth) and visualize_pth.endswith(".png"):
-            with open(visualize_pth, "rb") as img_file:
-                response["visualize_image"] = img_file.read().decode("ISO-8859-1")  # Encode binary image data as string
 
         return jsonify(response)
 
