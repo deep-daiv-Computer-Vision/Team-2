@@ -66,7 +66,6 @@ def summarize():
         if os.path.exists(visualize_pth) and visualize_pth.endswith(".png"):
             with open(visualize_pth, "rb") as img_file:
                 response["visualize_image"] = img_file.read().decode("ISO-8859-1")  # Encode binary image data as string
-
         return jsonify(response)
 
     except Exception as e:
@@ -98,4 +97,4 @@ def resummarize():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(debug=False)
+    app.run(debug=True)

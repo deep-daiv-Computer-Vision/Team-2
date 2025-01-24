@@ -64,7 +64,7 @@ def exe_by_sentences(text: str):
         for i in range(0, len(batch_clusters), mini_batch_size):
             mini_batch_summaries, mini_batch_importances = summarizer(batch_clusters[i:i+mini_batch_size], cal_grad=True, **config.summary.args)
             batch_summaries.append(mini_batch_summaries)
-            batch_importances.append(mini_batch_importances.cpu().numpy().tolist())
+            batch_importances.append(mini_batch_importances.cpu().numpy().astype(np.float64).tolist())
         total_summaries = " ".join(batch_summaries)
     else:
         batch_summaries = summarizer(batch_clusters, **config.summary.args)
@@ -90,10 +90,10 @@ def exe_by_sentences(text: str):
 
     # ========================== [Post-process] ========================
     evaluation_results= {
-        'rouge1': rouge1,
-        'rouge2': rouge2,
-        'rougeL': rougeL,
-        'bert_score': s_score
+        'rouge1': float(rouge1),
+        'rouge2': float(rouge2),
+        'rougeL': float(rougeL),
+        'bert_score': float(s_score)
     }
 
     return segments, concat_indices, batch_summaries, batch_importances, evaluation_results, visualize_pth

@@ -54,11 +54,12 @@ def scale_scores_minmax(scores):
             scaled_scores.append([])  # Preserve empty lists
     return scaled_scores
 
-def generate_segment_html(text, attention_scores):
+def generate_segment_html(text, attention_scores, init_:bool = False):
     html = ""
-    attention_scores = scale_scores_minmax(attention_scores)
+    if not init_:
+        attention_scores = scale_scores_minmax(attention_scores)
     for i, segment in enumerate(text):
-        if attention_scores[i]:  # Highlight the clicked segment
+        if not init_ and attention_scores[i]:  # Highlight the clicked segment
             words = segment.split()
             highlighted = " ".join(
                 f'<span style="background-color: {score_to_color(score * 0.8)}">{word}</span>'
@@ -421,7 +422,6 @@ def main():
                     for i, summary in enumerate(st.session_state.summary):
                         if st.button(label=f"{summary}", key=f"summary_button_in_box_{i}", type="primary"):
                             st.session_state["selected_summary"] = i
-                st.write(st.session_state['selected_summary'])
             else:
                 pass
 
@@ -429,8 +429,11 @@ def main():
             st.header("원본 텍스트")
             if view_mode == "전체 문장":
                 # 기존의 attention score 시각화
-                _, st.session_state.im_score = show_importance_score(st.session_state.attention_scores[st.session_state['selected_summary']], st.session_state.segments, st.session_state.concat_indices[st.session_state['selected_summary']])
-                html_content = generate_segment_html(st.session_state.segments, st.session_state.im_score)
+                if st.session_state['selected_summary']:
+                    _, st.session_state.im_score = show_importance_score(st.session_state.attention_scores[st.session_state['selected_summary']], st.session_state.segments, st.session_state.concat_indices[st.session_state['selected_summary']])
+                    html_content = generate_segment_html(st.session_state.segments, st.session_state.im_score)
+                else:
+                    html_content = generate_segment_html(st.session_state.segments, None, True)
                 st.markdown(
                     f"""
                     <div style="border: 1px solid #ddd; padding: 15px; border-radius: 5px; text-align: justify;">
