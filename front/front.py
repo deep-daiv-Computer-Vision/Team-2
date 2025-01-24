@@ -1,9 +1,12 @@
 import base64
 import io
 import streamlit as st
+import streamlit.components.v1 as components
 import numpy as np
 import requests
 from PIL import Image
+
+hover_component = components.declare_component("hover_component", path="streamlit_component.js")
 
 # TODO: 백엔드와 연결하는 작업 필요
 
@@ -41,7 +44,7 @@ def create_attention_html(text, attention_scores):
     words = text.split()
     # attention_scores의 길이가 words의 길이와 다른 경우 처리
     if len(attention_scores) != len(words):
-        # 길이를 맞추기 위해 attention_scores를 리샘플링
+        # 길이를 맞추기 위해 attention_`scores를 리샘플링
         attention_scores = np.interp(
             np.linspace(0, 1, len(words)),
             np.linspace(0, 1, len(attention_scores)),
@@ -67,7 +70,7 @@ def get_summary_and_attention(text, model_name):
             response = requests.post(
                 "http://localhost:5000/summarize",
                 files=files,
-                data=data
+                json=data
             )
         # 직접 텍스트 입력인 경우
         else:
@@ -80,35 +83,36 @@ def get_summary_and_attention(text, model_name):
             result = response.json()
             
             # 배치 요약문과 중요도 점수 추출
-            batch_summaries = result.get('batch_summaries', [])
-            batch_importances = result.get('batch_importances', [])
-            segments = result.get('segments', [])
-            concat_indices = result.get('concat_indices', [])
-            evaluation_results = result.get('evaluation_results', {})
+            batch_summaries = result['batch_summaries']
+            batch_importances = result['batch_importances']
+            segments = result['segments']
+            concat_indices = result['concat_indices']
+            evaluation_results = result['evaluation_results']
             
             # 시각화 이미지 처리
-            visualize_image = result.get('visualize_image')
+            visualize_image = result['visualize_image']
             if visualize_image:
                 # ISO-8859-1로 인코딩된 이미지 데이터를 바이너리로 변환
-                image_binary = base64.b64decode(visualize_image)
+                image_binary = visualize_image.encode('ISO-8859-1')
                 # 이미지 표시 로직 추가 필요
                 
             if not batch_importances:
                 return batch_summaries, np.zeros(len(text.split()))
-                
-            # 토큰 중요도 정규화
-            token_importance = np.array(batch_importances)
-            token_max = token_importance.max()
-            token_min = token_importance.min()
             
-            if token_max == token_min:
-                normalized_importance = np.full_like(token_importance, 0.5)
-            else:
-                normalized_importance = (token_importance - token_min) / (token_max - token_min)
-                
+            # st.write(np.array(batch_importances))
+            # # 토큰 중요도 정규화
+            # token_importance = np.array(batch_importances)
+            # st.write('??2')
+            # token_max = token_importance.max()
+            # token_min = token_importance.min()
+            
+            # if token_max == token_min:
+            #     normalized_importance = np.full_like(token_importance, 0.5)
+            # else:
+            #     normalized_importance = (token_importance - token_min) / (token_max - token_min)
             return {
                 'summaries': batch_summaries,
-                'importance_scores': normalized_importance,
+                'importance_score': batch_importances,
                 'segments': segments,
                 'concat_indices': concat_indices,
                 'evaluation_results': evaluation_results,
@@ -232,6 +236,7 @@ def main():
     # 입력 섹션
     st.sidebar.header("Input Section")
     text_input = None
+    st.session_state.selected_sentence = None
     
     if input_type == "파일 업로드":
         uploaded_file = st.sidebar.file_uploader(
@@ -284,7 +289,6 @@ def main():
             with st.spinner("요약 중..."):
                 # 실제 요약 및 어텐션 스코어 계산
                 model_result = get_summary_and_attention(text_input, model_name)
-                
                 # session_state에 결과 저장
                 st.session_state.summary = model_result['summaries']
                 st.session_state.attention_scores = model_result['importance_score']
@@ -295,7 +299,7 @@ def main():
 
                 # Image binary형식으로 받아옴
                 image_ = model_result['image_binary']
-                image_ = Image.open(io.BytesIO(image_))
+                st.session_state.image = Image.open(io.BytesIO(image_))
                 
                 # 사이드바에 평가 점수 표시
                 st.sidebar.divider()
@@ -326,7 +330,7 @@ def main():
             
             if view_mode == "특정 주제":
                 # TODO: 이곳에 scatter plot 들어갈 예정, 연결바람
-                st.image(image_, caption="Clustering Visualization", use_column_width=True)
+                st.image(st.session_state.image, caption="Clustering Visualization", use_container_width=True)
                 st.info("""
                 💡 **특정 주제 모드 사용 방법**
                 - 여기에 scatter plot 들어갈 예정.
@@ -361,7 +365,7 @@ def main():
                                     f"""
                                     <div class="summary-box">
                                         <h4>Brushing Resummarize ✨</h4>
-                                        <p>• 재요약 결과: {resummarize_result}</p>
+                                        <p>• 재요약 결과: {resummarize_result['summary']}</p>
                                         <p>• 관련 문맥: {sent}</p>
                                     """,
                                     unsafe_allow_html=True
@@ -378,7 +382,7 @@ def main():
                 st.markdown(
                     f"""
                     <div style="border: 1px solid #ddd; padding: 15px; border-radius: 5px;">
-                        {"".append(st.session_state.summary)}
+                        {"".join(st.session_state.summary)}
                     </div>
                     """,
                     unsafe_allow_html=True

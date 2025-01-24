@@ -107,7 +107,7 @@ def resummarize_with_sentence(full_text: str, target_text: str):
     # ========================== [Segmentation] ========================
     print("Segmentating... ", end="", flush=True)
     s = time.time()
-    segments = segmentate_sentence(full_text, **config.segment.args)
+    segments = segmentate_sentence(full_text, by_sentences=True, **config.segment.args)
     e = time.time()
     print("Done", f"{e-s:.2f} sec")
 
@@ -116,10 +116,10 @@ def resummarize_with_sentence(full_text: str, target_text: str):
 
     filtered_text = []
     for segment in segments:
-        if calculate_semantic_similarity(segment, target_text) > 0.8:
+        if calculate_semantic_similarity(segment, target_text) > 0.7:
             filtered_text.append(segment)
     
-    filtered_text = " ".append(filtered_text)
+    filtered_text = " ".join(filtered_text)
 
     # ========================== [Summarize] ===========================
     print("Summarizing...  ", end="", flush=True)
