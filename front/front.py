@@ -1,12 +1,10 @@
 import base64
 import io
 import streamlit as st
-import streamlit.components.v1 as components
 import numpy as np
 import requests
 from PIL import Image
 
-hover_component = components.declare_component("hover_component", path="streamlit_component.js")
 
 # TODO: 백엔드와 연결하는 작업 필요
 
@@ -18,8 +16,9 @@ st.set_page_config(
 
 def show_importance_score(importance_score: list, segments: list, concat_indices: list):
     # 들어오기 전에 이미 theme index에 해당하는 importance score, concat_indices가 들어왔다 가정
+    importance_score = importance_score[0]
     whole_token = len(importance_score)
-    output_list = [[] * len(segments)]
+    output_list = [[] for _ in range(len(segments))]
 
     # for문을 돌아가며 concat_indices 기반 해당 segments가 몇 단어로 이뤄져 있는지 확인
     # 해당 단어만큼 importance score을 output_list[(segment_index)[scores]] 형식으로 저장
@@ -33,28 +32,41 @@ def show_importance_score(importance_score: list, segments: list, concat_indices
         if current_index + seg_tokens > whole_token:
             return idx, output_list
 
-        output_list[seg_index].append(importance_score[current_index:current_index + seg_tokens])
+        output_list[seg_index] = importance_score[current_index:current_index + seg_tokens]
         current_index += seg_tokens
     
     return -1, output_list
 
+def score_to_color(score):
+    return f"rgba(255, 0, 0, {score})"
 
-def create_attention_html(text, attention_scores):
-    """텍스트에 attention score를 적용하여 HTML로 변환"""
-    words = text.split()
-    # attention_scores의 길이가 words의 길이와 다른 경우 처리
-    if len(attention_scores) != len(words):
-        # 길이를 맞추기 위해 attention_`scores를 리샘플링
-        attention_scores = np.interp(
-            np.linspace(0, 1, len(words)),
-            np.linspace(0, 1, len(attention_scores)),
-            attention_scores
-        )
-    
+def scale_scores_minmax(scores):
+    scaled_scores = []
+    for sublist in scores:
+        if sublist:  # Check if the sublist is not empty
+            min_val = min(sublist)
+            max_val = max(sublist)
+            if max_val - min_val == 0:  # Avoid division by zero
+                scaled_scores.append([1.0] * len(sublist))  # If all values are the same
+            else:
+                scaled_scores.append([(x - min_val) / (max_val - min_val) for x in sublist])
+        else:
+            scaled_scores.append([])  # Preserve empty lists
+    return scaled_scores
+
+def generate_segment_html(text, attention_scores):
     html = ""
-    for word, score in zip(words, attention_scores):
-        # score는 이미 0-1 사이의 값으로 정규화되어 있음
-        html += f'<span style="background-color: rgba(255, 0, 0, {score:.2f})">{word}</span> '
+    attention_scores = scale_scores_minmax(attention_scores)
+    for i, segment in enumerate(text):
+        if attention_scores[i]:  # Highlight the clicked segment
+            words = segment.split()
+            highlighted = " ".join(
+                f'<span style="background-color: {score_to_color(score * 0.8)}">{word}</span>'
+                for word, score in zip(words, attention_scores[i])
+            )
+            html += f"{highlighted} "
+        else:  # Plain text for unselected segments
+            html += f"{segment} "
     return html
 
 def get_summary_and_attention(text, model_name):
@@ -219,6 +231,28 @@ def main():
             margin-bottom: 20px;
             box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         }
+        .stButton > button[kind="primary"] {
+            background: none!important;
+            border: 0px !important;
+            padding: 0 0 !important;
+            color: black!important;
+            line-height: 2.0!important;
+            margin: 0px !important;
+            text-align: justify;
+            cursor: pointer;
+        }
+        .stButton > button[kind="primary"]:hover {
+            text-decoration: none;
+            color: black !important;
+        }
+        .stButton > button[kind="primary"]:focus {
+            outline: none!important;
+            box-shadow: none!important;
+            color: darkgreen !important;
+        }
+        .block-container .element-container { /* Adjust gap between columns */
+            gap: 0px !important;
+        }
         </style>
         """, unsafe_allow_html=True)
 
@@ -284,7 +318,7 @@ def main():
     image_ = None
     
     # 요약 버튼
-    if st.sidebar.button("요약하기", type="primary"):
+    if st.sidebar.button("요약하기"):
         if text_input:
             with st.spinner("요약 중..."):
                 # 실제 요약 및 어텐션 스코어 계산
@@ -293,6 +327,8 @@ def main():
                 st.session_state.summary = model_result['summaries']
                 st.session_state.attention_scores = model_result['importance_score']
                 st.session_state.text_input = text_input
+                st.session_state.segments = model_result['segments']
+                st.session_state.concat_indices = model_result['concat_indices']
                 
                 # ROUGE와 BERTScore 계산 및 표시
                 evaluation_scores = model_result['evaluation_results']
@@ -379,14 +415,13 @@ def main():
                 - 옆에 나온 원문 텍스트의 색깔은 요약 모델이 어디를 집중했는지 시각화한 모습입니다.
                 """)
                 # 일반 텍스트를 네모 박스 안에 표시
-                st.markdown(
-                    f"""
-                    <div style="border: 1px solid #ddd; padding: 15px; border-radius: 5px;">
-                        {"".join(st.session_state.summary)}
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
+                if not hasattr(st.session_state, "selected_summary"):
+                    st.session_state.selected_summary = None
+                with st.container(border=True):
+                    for i, summary in enumerate(st.session_state.summary):
+                        if st.button(label=f"{summary}", key=f"summary_button_in_box_{i}", type="primary"):
+                            st.session_state["selected_summary"] = i
+                st.write(st.session_state['selected_summary'])
             else:
                 pass
 
@@ -394,10 +429,11 @@ def main():
             st.header("원본 텍스트")
             if view_mode == "전체 문장":
                 # 기존의 attention score 시각화
-                html_content = create_attention_html(st.session_state.text_input, st.session_state.attention_scores)
+                _, st.session_state.im_score = show_importance_score(st.session_state.attention_scores[st.session_state['selected_summary']], st.session_state.segments, st.session_state.concat_indices[st.session_state['selected_summary']])
+                html_content = generate_segment_html(st.session_state.segments, st.session_state.im_score)
                 st.markdown(
                     f"""
-                    <div style="border: 1px solid #ddd; padding: 15px; border-radius: 5px;">
+                    <div style="border: 1px solid #ddd; padding: 15px; border-radius: 5px; text-align: justify;">
                         {html_content}
                     </div>
                     """,
