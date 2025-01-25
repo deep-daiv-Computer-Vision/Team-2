@@ -10,7 +10,7 @@ from PIL import Image
 
 # 페이지 설정을 가장 먼저 호출
 st.set_page_config(
-    page_title="XAI Summarization",
+    page_title="XAIkit-learn",
     page_icon="🤖", layout="wide"
     )
 
@@ -38,7 +38,7 @@ def show_importance_score(importance_score: list, segments: list, concat_indices
     return -1, output_list
 
 def score_to_color(score):
-    return f"rgba(255, 0, 0, {score})"
+    return f"rgba(255, 165, 0, {score})"
 
 def scale_scores_minmax(scores):
     scaled_scores = []
@@ -112,17 +112,6 @@ def get_summary_and_attention(text, model_name):
             if not batch_importances:
                 return batch_summaries, np.zeros(len(text.split()))
             
-            # st.write(np.array(batch_importances))
-            # # 토큰 중요도 정규화
-            # token_importance = np.array(batch_importances)
-            # st.write('??2')
-            # token_max = token_importance.max()
-            # token_min = token_importance.min()
-            
-            # if token_max == token_min:
-            #     normalized_importance = np.full_like(token_importance, 0.5)
-            # else:
-            #     normalized_importance = (token_importance - token_min) / (token_max - token_min)
             return {
                 'summaries': batch_summaries,
                 'importance_score': batch_importances,
