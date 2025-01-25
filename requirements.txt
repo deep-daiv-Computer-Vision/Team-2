@@ -11,3 +11,5 @@ pyyaml
 python-box
 scikit-learn
 flask-cors
+streamlit
+flask
