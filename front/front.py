@@ -246,8 +246,8 @@ def main():
         </style>
         """, unsafe_allow_html=True)
 
-    st.title("🔮💯시험 공부 벼락치기 시트 만들기")
-    st.write("본 요약시스템은 영어 요약만 제공합니다.")
+    st.title("💯시험 공부 벼락치기 시트 만들기")
+    st.write("본 요약시스템은 영어 요약만 제공합니다. 영어 텍스트만 넣어주세요!")
     # 사이드바 설정
     st.sidebar.title("강의 내용 요약하기")
     # 입력 방식 선택
@@ -355,11 +355,9 @@ def main():
             )
             
             if view_mode == "특정 주제":
-                # TODO: 이곳에 scatter plot 들어갈 예정, 연결바람
                 st.image(st.session_state.image, caption="Clustering Visualization", use_container_width=True)
                 st.info("""
                 💡 **특정 주제 모드 사용 방법**
-                - 여기에 scatter plot 들어갈 예정.
                 1. 아래의 요약 문장들을 클릭하세요.
                 2. 클릭한 요약 문장과 관련된 원본 문장들이 오른쪽에 하이라이트되어 표시됩니다.
                 3. 클릭한 문장에 대한 상세 정보가 아래에 표시됩니다.
